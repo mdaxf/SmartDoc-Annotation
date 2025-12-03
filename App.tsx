@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
+
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import AnnotationLayer from './components/AnnotationLayer';
 import Toolbar from './components/Toolbar';
 import { Annotation, ToolType, SmartDocProps } from './types';
@@ -185,6 +186,7 @@ const SmartDocApp: React.FC<SmartDocProps> = ({
   const [strokeWidth, setStrokeWidth] = useState<number>(4);
   const [fontSize, setFontSize] = useState<number>(20);
   const [scale, setScale] = useState<number>(1);
+  const [autoFit, setAutoFit] = useState<boolean>(true); // Responsive auto-fit state
   
   // Defect/Severity State
   const [severity, setSeverity] = useState<number>(4); // Default 4
@@ -224,6 +226,40 @@ const SmartDocApp: React.FC<SmartDocProps> = ({
     }
   }, []); // Run once
 
+  // Calculate best fit scale for the current container and content
+  const calculateBestFit = useCallback((contentWidth: number, contentHeight: number) => {
+    if (!workspaceRef.current || contentWidth === 0 || contentHeight === 0) return 1;
+    
+    const { clientWidth, clientHeight } = workspaceRef.current;
+    const padding = 64; // Approx padding
+    const availableWidth = Math.max(100, clientWidth - padding);
+    const availableHeight = Math.max(100, clientHeight - padding);
+
+    const scaleX = availableWidth / contentWidth;
+    const scaleY = availableHeight / contentHeight;
+    
+    // Fit entirely within view (contain), but max out at 1.0 (100%) to prevent upscaling blurriness
+    // unless the container is very small, then allow downscale.
+    // Actually, fit to page usually implies shrinking large images to fit.
+    return Math.min(1, Math.min(scaleX, scaleY));
+  }, []);
+
+  // Responsive Resize Observer
+  useEffect(() => {
+    const workspace = workspaceRef.current;
+    if (!workspace) return;
+
+    const resizeObserver = new ResizeObserver(() => {
+        if (autoFit && dimensions.width > 0 && dimensions.height > 0) {
+            const newScale = calculateBestFit(dimensions.width, dimensions.height);
+            setScale(newScale);
+        }
+    });
+
+    resizeObserver.observe(workspace);
+    return () => resizeObserver.disconnect();
+  }, [autoFit, dimensions, calculateBestFit]);
+
   // Handle Document Auto-Load
   useEffect(() => {
     if (documentSrc) {
@@ -257,6 +293,7 @@ const SmartDocApp: React.FC<SmartDocProps> = ({
       if (e.ctrlKey) {
         e.preventDefault();
         const delta = -Math.sign(e.deltaY) * 0.1;
+        setAutoFit(false); // Disable auto-fit on manual zoom
         setScale(prev => {
           const next = Math.max(0.1, Math.min(5, prev + delta));
           return Number(next.toFixed(1));
@@ -295,8 +332,6 @@ const SmartDocApp: React.FC<SmartDocProps> = ({
           });
           return updated;
       });
-      // Defer event emission to ensure it runs after render if possible, 
-      // or at least doesn't dirty the render phase.
       if (updatedAnn) {
           const ann = updatedAnn;
           requestAnimationFrame(() => events?.onAnnotationUpdate?.(ann));
@@ -354,13 +389,9 @@ const SmartDocApp: React.FC<SmartDocProps> = ({
               setBgImage(img);
               setDimensions({ width: viewport.width, height: viewport.height });
               
-              if (scale === 1) {
-                  const maxWidth = window.innerWidth - 350;
-                  const maxHeight = window.innerHeight - 100;
-                  if (viewport.width > maxWidth || viewport.height > maxHeight) {
-                      const ratio = Math.min(maxWidth / viewport.width, maxHeight / viewport.height);
-                      setScale(ratio);
-                  }
+              if (autoFit) {
+                  const fitScale = calculateBestFit(viewport.width, viewport.height);
+                  setScale(fitScale);
               }
               setIsLoadingFile(false);
               events?.onDocumentReady?.();
@@ -395,6 +426,7 @@ const SmartDocApp: React.FC<SmartDocProps> = ({
     setCurrentPage(1);
     setTotalPages(0);
     setIsLoadingFile(true);
+    setAutoFit(true); // Reset to auto-fit for new document
 
     if (file.type === 'application/pdf') {
         try {
@@ -421,21 +453,17 @@ const SmartDocApp: React.FC<SmartDocProps> = ({
             const img = new Image();
             img.src = src;
             img.onload = () => {
-            setBgImage(img);
-            const maxWidth = window.innerWidth - 350; 
-            const maxHeight = window.innerHeight - 100;
-            let w = img.naturalWidth;
-            let h = img.naturalHeight;
+                setBgImage(img);
+                const w = img.naturalWidth;
+                const h = img.naturalHeight;
+                setDimensions({ width: w, height: h });
+                
+                // Calculate Scale to Fit based on container
+                const fitScale = calculateBestFit(w, h);
+                setScale(fitScale);
 
-            if (w > maxWidth || h > maxHeight) {
-                const ratio = Math.min(maxWidth / w, maxHeight / h);
-                setScale(ratio);
-            } else {
-                setScale(1);
-            }
-            setDimensions({ width: w, height: h });
-            setIsLoadingFile(false);
-            events?.onDocumentReady?.();
+                setIsLoadingFile(false);
+                events?.onDocumentReady?.();
             };
         };
         reader.readAsDataURL(file);
@@ -613,6 +641,12 @@ const SmartDocApp: React.FC<SmartDocProps> = ({
       setSelectedAnnotationId(null);
       events?.onClearAnnotations?.();
   };
+  
+  const handleFitToScreen = () => {
+      setAutoFit(true);
+      const newScale = calculateBestFit(dimensions.width, dimensions.height);
+      setScale(newScale);
+  };
 
   // Filter Annotations for View
   // Defaults to page 1 for images or undefined
@@ -622,7 +656,7 @@ const SmartDocApp: React.FC<SmartDocProps> = ({
   });
 
   return (
-    <div className="flex h-screen bg-gray-900 text-gray-100 font-sans overflow-hidden" style={styleConfig?.container}>
+    <div className="flex w-full h-full bg-gray-900 text-gray-100 font-sans overflow-hidden" style={styleConfig?.container}>
       
       {/* Sidebar Toolbar */}
       <Toolbar 
@@ -643,7 +677,11 @@ const SmartDocApp: React.FC<SmartDocProps> = ({
         isAnalyzing={isAnalyzing}
         hasFile={!!imageSrc}
         scale={scale}
-        setScale={setScale}
+        setScale={(newScale) => {
+            setAutoFit(false);
+            setScale(newScale);
+        }}
+        onFitToScreen={handleFitToScreen}
         // Props
         severity={severity}
         setSeverity={updateSelectedSeverity}
@@ -708,7 +746,7 @@ const SmartDocApp: React.FC<SmartDocProps> = ({
         {/* Workspace */}
         <div 
              ref={workspaceRef}
-             className={`flex-1 relative bg-gray-900/50 overflow-auto flex items-center justify-center p-8 ${tool === 'hand' ? 'cursor-grab active:cursor-grabbing' : ''}`}
+             className={`flex-1 relative bg-gray-900/50 overflow-auto flex p-8 ${tool === 'hand' ? 'cursor-grab active:cursor-grabbing' : ''}`}
              style={{ 
                  backgroundImage: 'radial-gradient(#374151 1px, transparent 1px)', 
                  backgroundSize: '20px 20px',
@@ -720,13 +758,13 @@ const SmartDocApp: React.FC<SmartDocProps> = ({
              onMouseLeave={handleWorkspaceMouseUp}
         >
             {!imageSrc && !isLoadingFile ? (
-                <div className="text-center text-gray-500">
+                <div className="text-center text-gray-500 my-auto mx-auto">
                     <Info className="w-16 h-16 mx-auto mb-4 opacity-50" />
                     <h2 className="text-xl font-semibold mb-2">No Document Loaded</h2>
                     <p className="max-w-md mx-auto">Upload an image (PNG, JPG) or PDF to start annotating. <br/> Use the toolbar on the left to load a file.</p>
                 </div>
             ) : isLoadingFile ? (
-                <div className="flex flex-col items-center justify-center text-blue-400">
+                <div className="flex flex-col items-center justify-center text-blue-400 my-auto mx-auto">
                     <Loader2 className="w-12 h-12 animate-spin mb-4" />
                     <span className="text-lg font-medium">Loading Document...</span>
                 </div>

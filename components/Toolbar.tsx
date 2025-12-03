@@ -5,7 +5,7 @@ import { STROKE_WIDTHS, FONT_SIZES, SEVERITY_COLORS, REASON_CODES } from '../con
 import { 
   Pencil, Square, Circle, Type, MousePointer2, Hand,
   Trash2, Upload, FileUp, Sparkles, Download,
-  ZoomIn, ZoomOut, RotateCcw, AlertTriangle, ListChecks
+  ZoomIn, ZoomOut, RotateCcw, AlertTriangle, ListChecks, Maximize
 } from 'lucide-react';
 
 interface ToolbarProps {
@@ -24,6 +24,7 @@ interface ToolbarProps {
   hasFile: boolean;
   scale: number;
   setScale: (s: number) => void;
+  onFitToScreen?: () => void;
   
   // Dynamic Props
   severity: number;
@@ -56,6 +57,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
   hasFile,
   scale,
   setScale,
+  onFitToScreen,
   severity,
   setSeverity,
   reasonCode,
@@ -70,7 +72,13 @@ const Toolbar: React.FC<ToolbarProps> = ({
   
   const handleZoomIn = () => setScale(Math.min(5, scale + 0.1));
   const handleZoomOut = () => setScale(Math.max(0.1, scale - 0.1));
-  const handleResetZoom = () => setScale(1);
+  const handleResetZoom = () => {
+    if (onFitToScreen) {
+        onFitToScreen();
+    } else {
+        setScale(1);
+    }
+  };
 
   // Use custom config or defaults
   const activeSeverityColors = customSeverityColors || SEVERITY_COLORS;
@@ -124,8 +132,8 @@ const Toolbar: React.FC<ToolbarProps> = ({
             <button onClick={handleZoomIn} className="p-2 hover:bg-gray-600 rounded text-gray-300" title="Zoom In">
                 <ZoomIn className="w-4 h-4" />
             </button>
-            <button onClick={handleResetZoom} className="p-2 hover:bg-gray-600 rounded text-gray-300 border-l border-gray-600 ml-1" title="Reset Zoom">
-                <RotateCcw className="w-3 h-3" />
+            <button onClick={handleResetZoom} className="p-2 hover:bg-gray-600 rounded text-gray-300 border-l border-gray-600 ml-1" title="Fit to Screen">
+                {onFitToScreen ? <Maximize className="w-3 h-3" /> : <RotateCcw className="w-3 h-3" />}
             </button>
          </div>
       </div>
