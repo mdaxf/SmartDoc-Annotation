@@ -37,8 +37,8 @@
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     
     <!-- 3. The SmartDoc Library (Simulated import of the built artifact) -->
-    <!-- <script src="./dist/smart-doc.bundle.js"></script> -->
-    
+    <script src="./distribute/smart-doc.bundle.js"></script>
+
     <!-- NOTE: Since we are in the web-container environment, we rely on index.tsx to mount the app usually. 
          However, for this pure HTML file to work in a real deployment, it would look like this: -->
 </head>
@@ -80,8 +80,8 @@
                 
                 window.SmartDoc.create('smart-doc-root', {
                     // --- Configuration ---
-                    // documentSrc: 'https://raw.githubusercontent.com/mozilla/pdf.js/ba2edeae/examples/learning/helloworld.pdf', // Example Auto-load
-                    hideLoadFileBtn: false, // Show upload button
+                    documentSrc: 'https://raw.githubusercontent.com/mozilla/pdf.js/ba2edeae/examples/learning/helloworld.pdf', // Example Auto-load
+                    hideLoadFileBtn: true, // Show upload button
                     
                     // Custom Business Logic: Severity
                     severityOptions: {
