@@ -1,8 +1,7 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import AnnotationLayer from './components/AnnotationLayer';
 import Toolbar from './components/Toolbar';
-import { Annotation, ToolType } from './types';
+import { Annotation, ToolType, SmartDocProps } from './types';
 import { analyzeImageForAnnotations } from './services/geminiService';
 import { Code, Info, MessageSquare, Trash2, X, Check, ChevronLeft, ChevronRight, Loader2, AlertTriangle, ListChecks, Activity } from 'lucide-react';
 import { getColorForSeverity, REASON_CODES, SEVERITY_COLORS, STATUS_OPTIONS } from './constants';
@@ -22,16 +21,23 @@ interface CommentModalProps {
     reasonCode: string;
     status: string;
   };
+  severityOptions: Record<number, string>;
+  reasonCodeOptions: string[];
+  statusOptions: string[];
 }
 
 const CommentModal: React.FC<CommentModalProps> = ({ 
   isOpen, 
   onClose, 
   onSave, 
-  initialData 
+  initialData,
+  severityOptions,
+  reasonCodeOptions,
+  statusOptions
 }) => {
   const [formData, setFormData] = useState(initialData);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const severityLevels = Object.keys(severityOptions).map(Number).sort((a,b) => a - b);
 
   useEffect(() => {
     if (isOpen) {
@@ -65,18 +71,18 @@ const CommentModal: React.FC<CommentModalProps> = ({
                     <AlertTriangle className="w-3 h-3" />
                     Severity
                 </label>
-                <div className="flex gap-2">
-                    {[1, 2, 3, 4].map(s => (
+                <div className="flex gap-2 flex-wrap">
+                    {severityLevels.map(s => (
                         <button
                             key={s}
                             onClick={() => setFormData(prev => ({ ...prev, severity: s }))}
-                            className={`flex-1 py-2 rounded-md text-sm font-bold border-2 transition-all ${
+                            className={`flex-1 py-2 min-w-[3rem] rounded-md text-sm font-bold border-2 transition-all ${
                                 formData.severity === s 
                                 ? 'border-white scale-105 shadow-lg' 
                                 : 'border-transparent opacity-50 hover:opacity-100'
                             }`}
                             style={{ 
-                                backgroundColor: SEVERITY_COLORS[s],
+                                backgroundColor: severityOptions[s],
                                 color: s === 2 ? 'black' : 'white'
                             }}
                         >
@@ -98,7 +104,7 @@ const CommentModal: React.FC<CommentModalProps> = ({
                         onChange={(e) => setFormData(prev => ({ ...prev, reasonCode: e.target.value }))}
                         className="w-full bg-gray-900 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5 outline-none"
                     >
-                        {REASON_CODES.map(code => (
+                        {reasonCodeOptions.map(code => (
                             <option key={code} value={code}>{code}</option>
                         ))}
                     </select>
@@ -115,7 +121,7 @@ const CommentModal: React.FC<CommentModalProps> = ({
                         onChange={(e) => setFormData(prev => ({ ...prev, status: e.target.value }))}
                         className="w-full bg-gray-900 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5 outline-none"
                     >
-                        {STATUS_OPTIONS.map(status => (
+                        {statusOptions.map(status => (
                             <option key={status} value={status}>{status}</option>
                         ))}
                     </select>
@@ -161,9 +167,20 @@ const CommentModal: React.FC<CommentModalProps> = ({
   );
 };
 
-const App: React.FC = () => {
+const SmartDocApp: React.FC<SmartDocProps> = ({
+    documentSrc,
+    initialAnnotations = [],
+    severityOptions = SEVERITY_COLORS,
+    reasonCodeOptions = REASON_CODES,
+    statusOptions = STATUS_OPTIONS,
+    hideLoadFileBtn,
+    hideSaveJsonBtn,
+    hideLoadJsonBtn,
+    styleConfig,
+    events
+}) => {
   // Application State
-  const [annotations, setAnnotations] = useState<Annotation[]>([]);
+  const [annotations, setAnnotations] = useState<Annotation[]>(initialAnnotations);
   const [tool, setTool] = useState<ToolType>('pen');
   const [strokeWidth, setStrokeWidth] = useState<number>(4);
   const [fontSize, setFontSize] = useState<number>(20);
@@ -171,7 +188,7 @@ const App: React.FC = () => {
   
   // Defect/Severity State
   const [severity, setSeverity] = useState<number>(4); // Default 4
-  const [reasonCode, setReasonCode] = useState<string>(REASON_CODES[0]); // Default first
+  const [reasonCode, setReasonCode] = useState<string>(reasonCodeOptions[0]);
 
   // Selection & Editing State
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
@@ -199,6 +216,37 @@ const App: React.FC = () => {
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
   const [scrollStart, setScrollStart] = useState({ left: 0, top: 0 });
+
+  // Handle Initial Annotations Event
+  useEffect(() => {
+    if (initialAnnotations.length > 0 && events?.onAnnotationsReady) {
+        events.onAnnotationsReady();
+    }
+  }, []); // Run once
+
+  // Handle Document Auto-Load
+  useEffect(() => {
+    if (documentSrc) {
+        const loadFromUrl = async () => {
+            setIsLoadingFile(true);
+            try {
+                const response = await fetch(documentSrc);
+                const blob = await response.blob();
+                const fileType = documentSrc.toLowerCase().endsWith('.pdf') || blob.type === 'application/pdf' ? 'application/pdf' : 'image/jpeg';
+                
+                const file = new File([blob], documentSrc.split('/').pop() || 'document', { type: fileType });
+                
+                // Reuse existing load logic by creating a synthetic event
+                const event = { target: { files: [file] } } as unknown as React.ChangeEvent<HTMLInputElement>;
+                handleFileChange(event);
+            } catch (err) {
+                console.error("Failed to auto-load document:", err);
+                setIsLoadingFile(false);
+            }
+        };
+        loadFromUrl();
+    }
+  }, [documentSrc]);
 
   // Handle Ctrl + Scroll for Zoom
   useEffect(() => {
@@ -235,27 +283,50 @@ const App: React.FC = () => {
   const updateSelectedSeverity = (newSeverity: number) => {
     setSeverity(newSeverity);
     if (selectedAnnotationId) {
-      setAnnotations(prev => prev.map(a => 
-        a.id === selectedAnnotationId 
-          ? { ...a, severity: newSeverity, color: getColorForSeverity(newSeverity) } 
-          : a
-      ));
+      let updatedAnn: Annotation | undefined;
+      setAnnotations(prev => {
+          const updated = prev.map(a => {
+            if (a.id === selectedAnnotationId) {
+                const updatedItem = { ...a, severity: newSeverity, color: severityOptions[newSeverity] || severityOptions[4] };
+                updatedAnn = updatedItem;
+                return updatedItem;
+            }
+            return a;
+          });
+          return updated;
+      });
+      // Defer event emission to ensure it runs after render if possible, 
+      // or at least doesn't dirty the render phase.
+      if (updatedAnn) {
+          const ann = updatedAnn;
+          requestAnimationFrame(() => events?.onAnnotationUpdate?.(ann));
+      }
     }
   };
 
   const updateSelectedReasonCode = (newCode: string) => {
     setReasonCode(newCode);
     if (selectedAnnotationId) {
-      setAnnotations(prev => prev.map(a => 
-        a.id === selectedAnnotationId 
-          ? { ...a, reasonCode: newCode } 
-          : a
-      ));
+      let updatedAnn: Annotation | undefined;
+      setAnnotations(prev => {
+          const updated = prev.map(a => {
+            if (a.id === selectedAnnotationId) {
+                const updatedItem = { ...a, reasonCode: newCode };
+                updatedAnn = updatedItem;
+                return updatedItem;
+            }
+            return a;
+          });
+          return updated;
+      });
+      if (updatedAnn) {
+        const ann = updatedAnn;
+        requestAnimationFrame(() => events?.onAnnotationUpdate?.(ann));
+      }
     }
   };
 
-
-  // Helpers
+  // Helper
   const selectedAnnotation = annotations.find(a => a.id === selectedAnnotationId);
 
   // PDF Page Renderer
@@ -272,7 +343,7 @@ const App: React.FC = () => {
           canvas.height = viewport.height;
           canvas.width = viewport.width;
 
-          await page.render({ canvasContext: context, viewport: viewport }).promise;
+          await page.render({ canvasContext: context, viewport: viewport } as any).promise;
 
           const imgData = canvas.toDataURL('image/jpeg');
           setImageSrc(imgData); // Trigger background update
@@ -292,6 +363,7 @@ const App: React.FC = () => {
                   }
               }
               setIsLoadingFile(false);
+              events?.onDocumentReady?.();
           };
       } catch (err) {
           console.error("Error rendering PDF page", err);
@@ -316,6 +388,8 @@ const App: React.FC = () => {
 
     setFileName(file.name);
     setAnnotations([]); // Clear annotations for new file
+    events?.onClearAnnotations?.();
+    
     setSelectedAnnotationId(null);
     setPdfDoc(null);
     setCurrentPage(1);
@@ -361,6 +435,7 @@ const App: React.FC = () => {
             }
             setDimensions({ width: w, height: h });
             setIsLoadingFile(false);
+            events?.onDocumentReady?.();
             };
         };
         reader.readAsDataURL(file);
@@ -395,6 +470,7 @@ const App: React.FC = () => {
         const data = JSON.parse(event.target?.result as string);
         if (data.annotations && Array.isArray(data.annotations)) {
           setAnnotations(data.annotations);
+          events?.onAnnotationsReady?.();
         } else {
             alert("Invalid JSON format");
         }
@@ -417,9 +493,13 @@ const App: React.FC = () => {
              page: currentPage,
              severity: severity,
              reasonCode: reasonCode,
-             color: getColorForSeverity(severity),
+             color: severityOptions[severity] || severityOptions[4],
              status: 'New'
         }));
+        
+        // Auto-generated annotations event loop
+        pageAnnotations.forEach(ann => events?.onAnnotationAdd?.(ann));
+        
         setAnnotations(prev => [...prev, ...pageAnnotations]);
     } catch (error) {
         alert("Gemini Analysis Failed. Check console or API Key.");
@@ -431,6 +511,7 @@ const App: React.FC = () => {
   const deleteAnnotation = (id: string) => {
       setAnnotations(prev => prev.filter(a => a.id !== id));
       if (selectedAnnotationId === id) setSelectedAnnotationId(null);
+      events?.onAnnotationDelete?.(id);
   };
 
   const handleCancelModal = () => {
@@ -444,20 +525,35 @@ const App: React.FC = () => {
 
   const handleSaveModal = (data: { comment: string; severity: number; reasonCode: string; status: string }) => {
       if (selectedAnnotationId) {
-          setAnnotations(prev => prev.map(a => 
-              a.id === selectedAnnotationId ? { 
-                  ...a, 
-                  comment: data.comment,
-                  severity: data.severity,
-                  reasonCode: data.reasonCode,
-                  status: data.status,
-                  color: getColorForSeverity(data.severity) // Update color based on severity
-              } : a
-          ));
+          let updatedAnnotation: Annotation | undefined;
+          
+          setAnnotations(prev => {
+              const updated = prev.map(a => {
+                  if (a.id === selectedAnnotationId) {
+                      updatedAnnotation = { 
+                          ...a, 
+                          comment: data.comment,
+                          severity: data.severity,
+                          reasonCode: data.reasonCode,
+                          status: data.status,
+                          color: severityOptions[data.severity] || severityOptions[4]
+                      };
+                      return updatedAnnotation;
+                  }
+                  return a;
+              });
+              return updated;
+          });
           
           // Also update global state for continuity
           setSeverity(data.severity);
           setReasonCode(data.reasonCode);
+          
+          // Emit update event
+          if (updatedAnnotation) {
+              const ann = updatedAnnotation;
+              requestAnimationFrame(() => events?.onAnnotationUpdate?.(ann));
+          }
       }
       setNewAnnotationId(null); // The annotation is now committed
       setShowCommentModal(false);
@@ -511,6 +607,12 @@ const App: React.FC = () => {
   const handleWorkspaceMouseUp = () => {
       setIsPanning(false);
   };
+  
+  const handleClear = () => {
+      setAnnotations(prev => prev.filter(a => (a.page || 1) !== currentPage));
+      setSelectedAnnotationId(null);
+      events?.onClearAnnotations?.();
+  };
 
   // Filter Annotations for View
   // Defaults to page 1 for images or undefined
@@ -520,7 +622,7 @@ const App: React.FC = () => {
   });
 
   return (
-    <div className="flex h-screen bg-gray-900 text-gray-100 font-sans overflow-hidden">
+    <div className="flex h-screen bg-gray-900 text-gray-100 font-sans overflow-hidden" style={styleConfig?.container}>
       
       {/* Sidebar Toolbar */}
       <Toolbar 
@@ -533,11 +635,7 @@ const App: React.FC = () => {
         setStrokeWidth={setStrokeWidth}
         currentFontSize={fontSize}
         setFontSize={setFontSize}
-        onClear={() => {
-            // Only clear current page
-            setAnnotations(prev => prev.filter(a => (a.page || 1) !== currentPage));
-            setSelectedAnnotationId(null);
-        }}
+        onClear={handleClear}
         onSave={handleSave}
         onLoad={handleLoad}
         onFileChange={handleFileChange}
@@ -546,15 +644,22 @@ const App: React.FC = () => {
         hasFile={!!imageSrc}
         scale={scale}
         setScale={setScale}
-        // New Props
+        // Props
         severity={severity}
         setSeverity={updateSelectedSeverity}
         reasonCode={reasonCode}
         setReasonCode={updateSelectedReasonCode}
+        // Custom
+        hideLoadFileBtn={!!documentSrc || hideLoadFileBtn}
+        hideSaveJsonBtn={hideSaveJsonBtn}
+        hideLoadJsonBtn={hideLoadJsonBtn}
+        customSeverityColors={severityOptions}
+        customReasonCodes={reasonCodeOptions}
+        style={styleConfig?.toolbar}
       />
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col relative overflow-hidden">
+      <div className="flex-1 flex flex-col relative overflow-hidden" style={styleConfig?.layout}>
         
         {/* Top Header */}
         <div className="h-14 bg-gray-800 border-b border-gray-700 flex items-center justify-between px-6 shadow-md z-10 shrink-0">
@@ -604,7 +709,11 @@ const App: React.FC = () => {
         <div 
              ref={workspaceRef}
              className={`flex-1 relative bg-gray-900/50 overflow-auto flex items-center justify-center p-8 ${tool === 'hand' ? 'cursor-grab active:cursor-grabbing' : ''}`}
-             style={{ backgroundImage: 'radial-gradient(#374151 1px, transparent 1px)', backgroundSize: '20px 20px' }}
+             style={{ 
+                 backgroundImage: 'radial-gradient(#374151 1px, transparent 1px)', 
+                 backgroundSize: '20px 20px',
+                 ...styleConfig?.workspace
+             }}
              onMouseDown={handleWorkspaceMouseDown}
              onMouseMove={handleWorkspaceMouseMove}
              onMouseUp={handleWorkspaceMouseUp}
@@ -652,6 +761,10 @@ const App: React.FC = () => {
                             setSelectedAnnotationId(ann.id);
                             setNewAnnotationId(ann.id); 
                             setShowCommentModal(true);
+                            events?.onAnnotationAdd?.(ann);
+                        }}
+                        onAnnotationUpdate={(ann) => {
+                            events?.onAnnotationUpdate?.(ann);
                         }}
                         onSelect={setSelectedAnnotationId}
                         selectedId={selectedAnnotationId}
@@ -716,6 +829,9 @@ const App: React.FC = () => {
                 reasonCode: selectedAnnotation?.reasonCode || reasonCode,
                 status: selectedAnnotation?.status || 'New'
             }}
+            severityOptions={severityOptions}
+            reasonCodeOptions={reasonCodeOptions}
+            statusOptions={statusOptions}
         />
 
       </div>
@@ -723,4 +839,4 @@ const App: React.FC = () => {
   );
 };
 
-export default App;
+export default SmartDocApp;

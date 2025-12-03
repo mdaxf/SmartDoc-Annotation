@@ -1,4 +1,6 @@
 
+import React from 'react';
+
 export type ToolType = 'select' | 'rect' | 'circle' | 'pen' | 'text' | 'hand';
 
 export interface Point {
@@ -54,4 +56,53 @@ export interface DocFile {
   name: string;
   type: string;
   dataUrl: string; // Base64 or Blob URL
+}
+
+// Library Configuration Types
+
+export interface SmartDocStyleConfig {
+  container?: React.CSSProperties;
+  toolbar?: React.CSSProperties;
+  workspace?: React.CSSProperties;
+  layout?: React.CSSProperties;
+}
+
+export interface SmartDocEvents {
+  onDocumentReady?: () => void;
+  onAnnotationsReady?: () => void;
+  onAnnotationAdd?: (annotation: Annotation) => void;
+  onAnnotationUpdate?: (annotation: Annotation) => void;
+  onAnnotationDelete?: (id: string) => void;
+  onClearAnnotations?: () => void;
+}
+
+export interface SmartDocConfig {
+  documentSrc?: string; // URL to auto-load
+  initialAnnotations?: Annotation[];
+  
+  // Customization Lists
+  severityOptions?: Record<number, string>; // { 1: '#color', ... }
+  reasonCodeOptions?: string[];
+  statusOptions?: string[];
+  
+  // UI Options
+  hideLoadFileBtn?: boolean;
+  hideSaveJsonBtn?: boolean;
+  hideLoadJsonBtn?: boolean;
+  
+  // Styling
+  styleConfig?: SmartDocStyleConfig;
+}
+
+export interface SmartDocProps extends SmartDocConfig {
+  events?: SmartDocEvents;
+}
+
+// Global Declaration for Distributed Library
+declare global {
+  interface Window {
+    SmartDoc: {
+      create: (containerId: string, config?: SmartDocConfig, events?: SmartDocEvents) => { unmount: () => void };
+    }
+  }
 }

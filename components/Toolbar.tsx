@@ -25,11 +25,19 @@ interface ToolbarProps {
   scale: number;
   setScale: (s: number) => void;
   
-  // New Props
+  // Dynamic Props
   severity: number;
   setSeverity: (s: number) => void;
   reasonCode: string;
   setReasonCode: (code: string) => void;
+  
+  // Custom Config Props
+  hideLoadFileBtn?: boolean;
+  hideSaveJsonBtn?: boolean;
+  hideLoadJsonBtn?: boolean;
+  customSeverityColors?: Record<number, string>;
+  customReasonCodes?: string[];
+  style?: React.CSSProperties;
 }
 
 const Toolbar: React.FC<ToolbarProps> = ({
@@ -51,25 +59,41 @@ const Toolbar: React.FC<ToolbarProps> = ({
   severity,
   setSeverity,
   reasonCode,
-  setReasonCode
+  setReasonCode,
+  hideLoadFileBtn,
+  hideSaveJsonBtn,
+  hideLoadJsonBtn,
+  customSeverityColors,
+  customReasonCodes,
+  style
 }) => {
   
   const handleZoomIn = () => setScale(Math.min(5, scale + 0.1));
   const handleZoomOut = () => setScale(Math.max(0.1, scale - 0.1));
   const handleResetZoom = () => setScale(1);
 
+  // Use custom config or defaults
+  const activeSeverityColors = customSeverityColors || SEVERITY_COLORS;
+  const activeReasonCodes = customReasonCodes || REASON_CODES;
+  const severityLevels = Object.keys(activeSeverityColors).map(Number).sort((a, b) => a - b);
+
   return (
-    <div className="flex flex-col h-full bg-gray-800 border-r border-gray-700 p-4 w-72 overflow-y-auto gap-6 shadow-2xl z-10">
+    <div 
+      className="flex flex-col h-full bg-gray-800 border-r border-gray-700 p-4 w-72 overflow-y-auto gap-6 shadow-2xl z-10"
+      style={style}
+    >
       
       {/* File Operations */}
       <div className="space-y-3">
         <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Document</h3>
         
-        <label className="flex items-center justify-center w-full px-4 py-3 bg-indigo-600 hover:bg-indigo-700 rounded-lg cursor-pointer transition-colors text-sm font-semibold">
-          <FileUp className="w-5 h-5 mr-2" />
-          Load File (Img/PDF)
-          <input type="file" className="hidden" accept="image/*,.pdf,.docx" onChange={onFileChange} />
-        </label>
+        {!hideLoadFileBtn && (
+            <label className="flex items-center justify-center w-full px-4 py-3 bg-indigo-600 hover:bg-indigo-700 rounded-lg cursor-pointer transition-colors text-sm font-semibold">
+            <FileUp className="w-5 h-5 mr-2" />
+            Load File (Img/PDF)
+            <input type="file" className="hidden" accept="image/*,.pdf,.docx" onChange={onFileChange} />
+            </label>
+        )}
 
         {hasFile && (
            <button
@@ -148,18 +172,18 @@ const Toolbar: React.FC<ToolbarProps> = ({
         {/* Severity */}
         <div className="space-y-2">
             <label className="text-xs text-gray-400">Severity Level</label>
-            <div className="flex gap-2">
-                {[1, 2, 3, 4].map(s => (
+            <div className="flex gap-2 flex-wrap">
+                {severityLevels.map(s => (
                     <button
                         key={s}
                         onClick={() => setSeverity(s)}
-                        className={`flex-1 py-2 rounded-md text-sm font-bold border-2 transition-all ${
+                        className={`flex-1 py-2 min-w-[3rem] rounded-md text-sm font-bold border-2 transition-all ${
                             severity === s 
                             ? 'border-white scale-105 shadow-lg' 
                             : 'border-transparent opacity-60 hover:opacity-100'
                         }`}
                         style={{ 
-                            backgroundColor: SEVERITY_COLORS[s],
+                            backgroundColor: activeSeverityColors[s],
                             color: s === 2 ? 'black' : 'white' // Yellow needs black text
                         }}
                     >
@@ -184,7 +208,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                 onChange={(e) => setReasonCode(e.target.value)}
                 className="w-full bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5 outline-none"
             >
-                {REASON_CODES.map(code => (
+                {activeReasonCodes.map(code => (
                     <option key={code} value={code}>{code}</option>
                 ))}
             </select>
@@ -231,15 +255,22 @@ const Toolbar: React.FC<ToolbarProps> = ({
       {/* Data Operations */}
       <div className="space-y-3 mt-auto">
         <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Data</h3>
-        <button onClick={onSave} className="flex items-center w-full px-3 py-2 text-sm text-gray-300 hover:text-white hover:bg-gray-700 rounded-lg transition-colors">
-            <Download className="w-4 h-4 mr-3" />
-            Save JSON
-        </button>
-        <label className="flex items-center w-full px-3 py-2 text-sm text-gray-300 hover:text-white hover:bg-gray-700 rounded-lg cursor-pointer transition-colors">
-            <Upload className="w-4 h-4 mr-3" />
-            Load JSON
-            <input type="file" className="hidden" accept=".json" onChange={onLoad} />
-        </label>
+        
+        {!hideSaveJsonBtn && (
+            <button onClick={onSave} className="flex items-center w-full px-3 py-2 text-sm text-gray-300 hover:text-white hover:bg-gray-700 rounded-lg transition-colors">
+                <Download className="w-4 h-4 mr-3" />
+                Save JSON
+            </button>
+        )}
+        
+        {!hideLoadJsonBtn && (
+            <label className="flex items-center w-full px-3 py-2 text-sm text-gray-300 hover:text-white hover:bg-gray-700 rounded-lg cursor-pointer transition-colors">
+                <Upload className="w-4 h-4 mr-3" />
+                Load JSON
+                <input type="file" className="hidden" accept=".json" onChange={onLoad} />
+            </label>
+        )}
+        
         <button onClick={onClear} className="flex items-center w-full px-3 py-2 text-sm text-red-400 hover:text-red-300 hover:bg-red-900/20 rounded-lg transition-colors">
             <Trash2 className="w-4 h-4 mr-3" />
             Clear Annotations

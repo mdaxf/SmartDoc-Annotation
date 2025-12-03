@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmartDoc Library - Integration Demo</title>
+    
+    <!-- 1. Load Styles (Tailwind is used internally, but host app can have its own) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <style>
+        body { background-color: #f3f4f6; }
+        #app-container {
+            height: 80vh;
+            border: 2px solid #e5e7eb;
+            border-radius: 12px;
+            overflow: hidden;
+            background: white;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        }
+        .log-panel {
+            font-family: monospace;
+            font-size: 12px;
+            height: 150px;
+            overflow-y: auto;
+            background: #1f2937;
+            color: #10b981;
+            padding: 10px;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+    </style>
+
+    <!-- 2. Dependencies (In a real bundle, these might be included inside smart-doc.js) -->
+    <!-- For this demo, we assume the environment provides React/ReactDOM or the bundle includes them -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- 3. The SmartDoc Library (Simulated import of the built artifact) -->
+    <!-- <script src="./dist/smart-doc.bundle.js"></script> -->
+    
+    <!-- NOTE: Since we are in the web-container environment, we rely on index.tsx to mount the app usually. 
+         However, for this pure HTML file to work in a real deployment, it would look like this: -->
+</head>
+<body class="p-8">
+
+    <div class="max-w-7xl mx-auto">
+        <div class="mb-6">
+            <h1 class="text-3xl font-bold text-gray-800">SmartDoc Integration Demo</h1>
+            <p class="text-gray-600">This page demonstrates how to embed the SmartDoc library into a legacy application.</p>
+        </div>
+
+        <!-- Container for the SmartDoc App -->
+        <div id="smart-doc-root" id="app-container"></div>
+
+        <!-- Event Logging Console -->
+        <div class="mt-4">
+            <h3 class="font-bold text-gray-700 mb-2">Host Application Event Log:</h3>
+            <div id="event-log" class="log-panel">
+                <div>> System ready...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Helper to log events to the HTML UI
+        function logEvent(message, data) {
+            const log = document.getElementById('event-log');
+            const entry = document.createElement('div');
+            const timestamp = new Date().toLocaleTimeString();
+            const dataStr = data ? ` | Data: ${JSON.stringify(data).substring(0, 50)}...` : '';
+            entry.innerText = `[${timestamp}] ${message}${dataStr}`;
+            log.prepend(entry);
+        }
+
+        // 4. Initialize the Library
+        // We wrap this in a check to ensure the library is loaded
+        window.onload = function() {
+            if (window.SmartDoc) {
+                
+                window.SmartDoc.create('smart-doc-root', {
+                    // --- Configuration ---
+                    // documentSrc: 'https://raw.githubusercontent.com/mozilla/pdf.js/ba2edeae/examples/learning/helloworld.pdf', // Example Auto-load
+                    hideLoadFileBtn: false, // Show upload button
+                    
+                    // Custom Business Logic: Severity
+                    severityOptions: {
+                        1: '#4ade80', // Green (Good)
+                        2: '#facc15', // Yellow (Warning)
+                        3: '#f87171', // Red (Bad)
+                        4: '#7f1d1d'  // Dark Red (Critical)
+                    },
+
+                    // Custom Business Logic: Reason Codes
+                    reasonCodeOptions: [
+                        'Surface Scratch', 
+                        'Dent', 
+                        'Paint Chip', 
+                        'Rust', 
+                        'Misalignment',
+                        'Other'
+                    ],
+
+                    // Custom Business Logic: Status Workflow
+                    statusOptions: ['Open', 'In Review', 'Repaired', 'Rejected'],
+
+                    // Styling Override
+                    styleConfig: {
+                        toolbar: { backgroundColor: '#111827' }
+                    }
+
+                }, {
+                    // --- Event Callbacks ---
+                    onDocumentReady: () => {
+                        logEvent("Document loaded and rendered successfully.");
+                    },
+                    onAnnotationAdd: (ann) => {
+                        logEvent("Annotation Created", { id: ann.id, type: ann.type, reason: ann.reasonCode });
+                    },
+                    onAnnotationUpdate: (ann) => {
+                        logEvent("Annotation Updated", { id: ann.id, status: ann.status, comment: ann.comment });
+                    },
+                    onAnnotationDelete: (id) => {
+                        logEvent("Annotation Deleted", { id });
+                    },
+                    onClearAnnotations: () => {
+                        logEvent("All annotations cleared.");
+                    }
+                });
+
+                logEvent("SmartDoc Library Initialized.");
+            } else {
+                console.warn("SmartDoc library not found on window object. (If running in dev mode, check index.tsx)");
+                logEvent("Library script not loaded. This is expected in the dev container if only App.tsx is running.");
+            }
+        };
+    </script>
+</body>
+</html>

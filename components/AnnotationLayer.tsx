@@ -2,7 +2,6 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { Annotation, ToolType, Point, RectAnnotation, CircleAnnotation, PenAnnotation, TextAnnotation } from '../types';
 import { isPointInRect, isPointInCircle, isPointNearPath, isPointInText } from '../utils/geometry';
-import { getColorForSeverity } from '../constants';
 
 interface AnnotationLayerProps {
   width: number;
@@ -13,6 +12,7 @@ interface AnnotationLayerProps {
   annotations: Annotation[];
   onAnnotationsChange: (annotations: Annotation[]) => void;
   onAnnotationCreated?: (annotation: Annotation) => void;
+  onAnnotationUpdate?: (annotation: Annotation) => void; // New Callback
   onSelect?: (id: string | null) => void;
   selectedId?: string | null;
   backgroundImage: HTMLImageElement | null;
@@ -33,6 +33,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
   annotations,
   onAnnotationsChange,
   onAnnotationCreated,
+  onAnnotationUpdate,
   onSelect,
   selectedId,
   backgroundImage,
@@ -270,7 +271,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
                x: point.x,
                y: point.y,
                text,
-               color: getColorForSeverity(severity),
+               color: '#ffffff', // Placeholder, will be overriden by creation logic in parent usually but good default
                strokeWidth: 1, 
                fontSize,
                page,
@@ -291,7 +292,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
 
     const baseAnn = {
       id: generateId(),
-      color: getColorForSeverity(severity),
+      color: '#ffffff', // Placeholder
       strokeWidth,
       page,
       severity,
@@ -364,7 +365,16 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
 
   const handleMouseUp = () => {
     if (tool === 'hand') return;
+    
+    // If we were dragging, check if we need to emit update event
+    if (draggedAnnotationId && onAnnotationUpdate) {
+        const draggedAnn = annotations.find(a => a.id === draggedAnnotationId);
+        if (draggedAnn) {
+            onAnnotationUpdate(draggedAnn);
+        }
+    }
     setDraggedAnnotationId(null);
+    
     if (!isDrawing) return;
     setIsDrawing(false);
     if (currentAnnotation) {
