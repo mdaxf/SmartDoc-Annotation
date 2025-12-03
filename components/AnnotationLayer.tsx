@@ -51,6 +51,14 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
   // Helper to generate IDs
   const generateId = () => Math.random().toString(36).substr(2, 9);
 
+  // Helper to convert hex to rgba
+  const hexToRgba = (hex: string, alpha: number) => {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  };
+
   // Render Function
   const renderCanvas = useCallback(() => {
     const canvas = canvasRef.current;
@@ -77,9 +85,9 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
       ctx.beginPath();
       // Highlight selection
       if (isSelected) {
-          ctx.shadowColor = 'rgba(255, 255, 255, 0.8)';
-          ctx.shadowBlur = 15;
-          ctx.strokeStyle = '#ffffff'; // White highlight for selection
+          ctx.shadowColor = 'rgba(0, 255, 255, 0.8)'; // Bright Cyan Glow
+          ctx.shadowBlur = 20;
+          ctx.strokeStyle = '#00ffff'; // Bright Cyan for selection
       } else {
           ctx.strokeStyle = ann.color;
       }
@@ -100,7 +108,11 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
         const labelText = r.label || ann.reasonCode;
         if (labelText) {
           ctx.font = "bold 12px sans-serif";
-          ctx.fillStyle = isSelected ? '#ffffff' : r.color;
+          ctx.fillStyle = isSelected ? '#00ffff' : r.color;
+          // Add stroke for legibility if background is noisy
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+          ctx.strokeText(labelText, r.x, r.y - 8);
           ctx.fillText(labelText, r.x, r.y - 8);
         }
       } else if (ann.type === 'circle') {
@@ -124,15 +136,15 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
         const t = ann as TextAnnotation;
         ctx.font = `${t.fontSize}px sans-serif`;
         ctx.fillStyle = ann.color; // Text uses fill
-        if (isSelected) ctx.fillStyle = '#ffffff';
+        if (isSelected) ctx.fillStyle = '#00ffff';
         ctx.fillText(t.text, t.x, t.y);
         textPos = { x: t.x, y: t.y };
         
         // Selection box for text
         if (isSelected) {
             const metrics = ctx.measureText(t.text);
-            ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = 1;
+            ctx.strokeStyle = '#00ffff';
+            ctx.lineWidth = 2;
             ctx.strokeRect(t.x - 2, t.y - t.fontSize, metrics.width + 4, t.fontSize + 4);
         }
       }
@@ -145,17 +157,45 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
       ].filter(s => s && s.toString().trim().length > 0).join(' ');
 
       if (displayContent) {
-          ctx.font = "italic 11px sans-serif";
-          ctx.fillStyle = "#ffffff";
-          const commentY = ann.type === 'text' ? textPos.y + 12 : textPos.y - 20;
+          // Increase visibility configuration
+          ctx.font = "bold 14px sans-serif";
+          const padding = 8;
+          const textMetrics = ctx.measureText(displayContent);
+          const bgWidth = textMetrics.width + (padding * 2);
+          const bgHeight = 26;
           
-          // Draw a small background for comment
-          const commentWidth = ctx.measureText(displayContent).width;
-          ctx.fillStyle = "rgba(0,0,0,0.6)";
-          ctx.fillRect(textPos.x, commentY - 10, commentWidth + 6, 14);
+          // Determine position
+          let boxX = textPos.x;
+          let boxY = textPos.y - 35; // Default: Above the shape
           
-          ctx.fillStyle = "#fbbf24"; // Amber-400
-          ctx.fillText(displayContent, textPos.x + 3, commentY + 1);
+          // Adjust for Text annotations to be below
+          if (ann.type === 'text') {
+              boxY = textPos.y + 10;
+          }
+
+          // Draw Background (Transparent Severity Color)
+          ctx.fillStyle = hexToRgba(ann.color, 0.15); 
+          ctx.shadowBlur = 0; 
+          ctx.fillRect(boxX, boxY, bgWidth, bgHeight);
+
+          // Draw Border (Solid Severity Color)
+          ctx.strokeStyle = ann.color;
+          ctx.lineWidth = 1;
+          ctx.strokeRect(boxX, boxY, bgWidth, bgHeight);
+          
+          // Draw Text (Solid Severity Color)
+          ctx.fillStyle = ann.color;
+          ctx.textBaseline = "middle";
+          
+          // Add text shadow for contrast against document content
+          ctx.shadowColor = "rgba(0,0,0,1)";
+          ctx.shadowBlur = 3;
+          
+          ctx.fillText(displayContent, boxX + padding, boxY + (bgHeight / 2));
+          
+          // Reset baseline and shadow
+          ctx.shadowBlur = 0;
+          ctx.textBaseline = "alphabetic";
       }
 
       ctx.restore();
