@@ -1,0 +1,121 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmartDoc - Multiple Images Example</title>
+    
+    <!-- 1. Styles -->
+    <link rel="stylesheet" href="../index.css"> 
+    
+    <!-- 2. Tailwind (for layout only) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <style>
+        #annotator-wrapper {
+            height: 700px;
+            width: 100%;
+            border: 2px solid #374151;
+            border-radius: 0.75rem;
+            overflow: hidden;
+            background: #111827;
+            position: relative; 
+        }
+    </style>
+</head>
+<body class="bg-gray-100 p-8 font-sans">
+
+    <div class="max-w-7xl mx-auto space-y-6">
+        
+        <div class="flex justify-between items-end">
+            <div>
+                <h1 class="text-3xl font-bold text-gray-800">Vehicle Inspection Report</h1>
+                <p class="text-gray-600">Multi-image loading example with pre-filled annotations.</p>
+            </div>
+            
+            <div class="flex gap-2">
+                <button onclick="loadAnotherSet()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded shadow transition">
+                    Load Different Set (Imperative)
+                </button>
+            </div>
+        </div>
+
+        <!-- Library Container -->
+        <div id="annotator-wrapper"></div>
+
+        <!-- Logs -->
+        <div class="bg-white p-4 rounded-lg shadow border border-gray-200">
+            <h3 class="font-bold text-gray-700 mb-2">System Logs:</h3>
+            <div id="logs" class="h-32 overflow-y-auto font-mono text-xs bg-gray-50 text-gray-600 p-2 rounded border"></div>
+        </div>
+
+    </div>
+
+    <script type="module">
+        import { createSmartDoc } from '../smartDoc.ts';
+        window.SmartDoc = { create: createSmartDoc };
+        window.dispatchEvent(new Event('library-loaded'));
+    </script>
+
+    <script>
+        let docInstance = null;
+
+        function log(msg) {
+            const el = document.getElementById('logs');
+            const time = new Date().toLocaleTimeString();
+            el.innerHTML = `<div class="border-b border-gray-100 py-1"><span class="text-blue-500">[${time}]</span> ${msg}</div>` + el.innerHTML;
+        }
+
+        window.addEventListener('library-loaded', () => {
+            
+            // --- INITIALIZATION WITH MULTIPLE IMAGES ---
+            docInstance = window.SmartDoc.create('annotator-wrapper', {
+                // Pass an Array of URLs here
+                documentSrc: [
+                    'https://images.unsplash.com/photo-1542282088-fe8426682b8f?auto=format&fit=crop&w=800&q=80', // Car 1
+                    'https://images.unsplash.com/photo-1580273916550-e323be2ebdd9?auto=format&fit=crop&w=800&q=80', // Car 2
+                    'https://images.unsplash.com/photo-1494905998402-395d579af97d?auto=format&fit=crop&w=800&q=80'  // Car 3
+                ],
+                
+                // Pre-fill annotations on specific pages
+                initialAnnotations: [
+                    { 
+                        id: 'a1', type: 'rect', page: 1, // Page 1
+                        x: 100, y: 150, width: 200, height: 100, 
+                        color: '#ef4444', strokeWidth: 4, severity: 4, reasonCode: 'Dent', status: 'New'
+                    },
+                    { 
+                        id: 'a2', type: 'text', page: 2, // Page 2
+                        x: 50, y: 50, text: 'Check Tires', 
+                        color: '#facc15', fontSize: 24, strokeWidth: 1 
+                    }
+                ],
+
+                hideLoadFileBtn: false,
+                severityOptions: { 1: '#22c55e', 4: '#ef4444' },
+                
+            }, {
+                onDocumentReady: () => log('All images loaded and rendered.'),
+                onAnnotationsReady: () => log('Initial annotations applied.'),
+                onAnnotationAdd: (ann) => log(`Added: ${ann.type} on Page ${ann.page}`),
+                onAnnotationUpdate: (ann) => console.log('SmartDoc: Updated', ann),
+                onAnnotationDelete: (id) => console.log('SmartDoc: Deleted', id),
+                onClearAnnotations: () => console.log('SmartDoc: Cleared'),
+                onSave: (data) => {
+                    console.log('Saved Data:', data);
+                    alert(`Saved document with ${data.annotations.length} annotations.`);
+                }
+            });
+        });
+
+        function loadAnotherSet() {
+            if(!docInstance) return;
+            log('Loading single PDF imperatively...');
+            // You can also pass an array here imperatively!
+            docInstance.loadDocument('https://raw.githubusercontent.com/mozilla/pdf.js/ba2edeae/examples/learning/helloworld.pdf');
+        }
+
+    </script>
+</body>
+</html>

@@ -1,5 +1,6 @@
 
 import { createSmartDoc } from './smartDoc';
+import './index.css'; // Import local styles
 
 // Example Usage of the Library
 const init = () => {
@@ -38,7 +39,11 @@ const init = () => {
         onAnnotationAdd: (ann) => console.log('SmartDoc: Added', ann),
         onAnnotationUpdate: (ann) => console.log('SmartDoc: Updated', ann),
         onAnnotationDelete: (id) => console.log('SmartDoc: Deleted', id),
-        onClearAnnotations: () => console.log('SmartDoc: Cleared')
+        onClearAnnotations: () => console.log('SmartDoc: Cleared'),
+        onSave: (data) => {
+            console.log('SmartDoc: Save Triggered via Callback', data);
+            alert(`Saved ${data.annotations.length} annotations for file: ${data.file}. Check console for full data object.`);
+        }
     });
 };
 

@@ -1,0 +1,147 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmartDoc - Multi-Page PDF Example</title>
+    
+    <!-- 1. Styles -->
+    <link rel="stylesheet" href="../index.css"> 
+    
+    <!-- 2. Tailwind (for layout only) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <style>
+        #annotator-wrapper {
+            height: 800px; /* Taller container for reading PDFs */
+            width: 100%;
+            border: 1px solid #374151;
+            border-radius: 0.5rem;
+            overflow: hidden;
+            background: #111827;
+            position: relative; 
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        }
+    </style>
+</head>
+<body class="bg-slate-900 p-8 font-sans text-slate-200">
+
+    <div class="max-w-6xl mx-auto space-y-6">
+        
+        <div class="flex justify-between items-start">
+            <div>
+                <h1 class="text-3xl font-bold text-white">Contract Review</h1>
+                <p class="text-slate-400 mt-1">Multi-page PDF annotation demo. Scroll to view specific page annotations.</p>
+            </div>
+            
+            <div class="bg-slate-800 p-3 rounded-lg border border-slate-700 text-sm">
+                <div class="font-semibold text-blue-400 mb-1">Active Document</div>
+                <div>TraceMonkey Technical Report</div>
+                <div class="text-xs text-slate-500">14 Pages • PDF</div>
+            </div>
+        </div>
+
+        <!-- Library Container -->
+        <div id="annotator-wrapper"></div>
+
+        <!-- Instructions / Legend -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="bg-slate-800 p-4 rounded-lg border border-slate-700">
+                <h3 class="font-bold text-white mb-2">Controls</h3>
+                <ul class="text-sm text-slate-400 space-y-1 list-disc pl-4">
+                    <li><strong>Select:</strong> Click any shape to view details.</li>
+                    <li><strong>Context Menu:</strong> Click selected shape to Edit or Delete.</li>
+                    <li><strong>Fullscreen:</strong> Use the maximize icon in toolbar.</li>
+                    <li><strong>Zoom:</strong> Ctrl + Scroll or use buttons.</li>
+                </ul>
+            </div>
+
+            <div class="bg-slate-800 p-4 rounded-lg border border-slate-700 col-span-2">
+                <h3 class="font-bold text-white mb-2">Event Log</h3>
+                <div id="logs" class="h-24 overflow-y-auto font-mono text-xs bg-black/30 text-green-400 p-2 rounded border border-slate-700">
+                    <div>> Ready to initialize...</div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- 3. Mock the Library Loading -->
+    <script type="module">
+        import { createSmartDoc } from '../smartDoc.ts';
+        window.SmartDoc = { create: createSmartDoc };
+        window.dispatchEvent(new Event('library-loaded'));
+    </script>
+
+    <script>
+        function log(msg) {
+            const el = document.getElementById('logs');
+            const time = new Date().toLocaleTimeString();
+            el.innerHTML = `<div class="py-0.5 border-b border-white/5"><span class="opacity-50">[${time}]</span> ${msg}</div>` + el.innerHTML;
+        }
+
+        window.addEventListener('library-loaded', () => {
+            
+            // --- INITIALIZATION ---
+            window.SmartDoc.create('annotator-wrapper', {
+                // 1. Load a Multi-Page PDF
+                // Using the Mozilla PDF.js sample (TraceMonkey), which has 14 pages
+                documentSrc: 'https://raw.githubusercontent.com/mozilla/pdf.js/master/web/compressed.tracemonkey-pldi-09.pdf',
+                
+                // 2. Map Annotations to Specific Pages
+                initialAnnotations: [
+                    { 
+                        id: 'intro-box', type: 'rect', page: 1, 
+                        x: 140, y: 220, width: 350, height: 100, 
+                        color: '#3b82f6', strokeWidth: 4, severity: 1, reasonCode: 'Observation', status: 'Closed',
+                        label: 'Abstract'
+                    },
+                    { 
+                        id: 'intro-text', type: 'text', page: 1, 
+                        x: 550, y: 250, text: 'Review abstract\nfor accuracy', 
+                        color: '#facc15', fontSize: 20, strokeWidth: 1 
+                    },
+                    { 
+                        id: 'perf-circle', type: 'circle', page: 3, 
+                        x: 300, y: 400, radius: 80, 
+                        color: '#ef4444', strokeWidth: 4, severity: 4, reasonCode: 'Defect 1',
+                        comment: 'Graph data seems inconsistent here.'
+                    },
+                    {
+                        id: 'arch-arrow', type: 'arrow', page: 5,
+                        points: [{x: 100, y: 100}, {x: 300, y: 300}],
+                        color: '#a855f7', strokeWidth: 6,
+                        comment: 'Check flow direction'
+                    }
+                ],
+
+                // 3. Configuration
+                hideLoadFileBtn: false,
+                defaultLayout: 'sidebar',
+                
+                // Custom Workflow Options
+                statusOptions: ['Draft', 'Legal Review', 'Approved', 'Rejected'],
+                reasonCodeOptions: ['Typo', 'Formatting', 'Legal Clause', 'Missing Sig'],
+                
+                styleConfig: {
+                    toolbar: { backgroundColor: '#0f172a' }, // Dark Slate
+                    workspace: { backgroundColor: '#334155' } // Slate 700 background
+                }
+
+            }, {
+                onDocumentReady: () => log('PDF Loaded successfully (14 Pages)'),
+                onAnnotationsReady: () => log('Annotations mapped to pages 1, 3, and 5'),
+                onAnnotationAdd: (ann) => log(`New Annotation on Page ${ann.page}: ${ann.type}`),
+                onAnnotationUpdate: (ann) => console.log('SmartDoc: Updated', ann),
+                onAnnotationDelete: (id) => console.log('SmartDoc: Deleted', id),
+                onClearAnnotations: () => console.log('SmartDoc: Cleared'),
+                onSave: (data) => {
+                    console.log('Saved Data:', data);
+                    alert(`Saved document with ${data.annotations.length} annotations.`);
+                }
+            });
+        });
+    </script>
+</body>
+</html>

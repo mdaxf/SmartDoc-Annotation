@@ -1,6 +1,6 @@
-import { GoogleGenAI, Type, SchemaType } from "@google/genai";
+
+import { GoogleGenAI, Type } from "@google/genai";
 import { Annotation, RectAnnotation } from "../types";
-import { v4 as uuidv4 } from 'uuid'; // We'll implement a simple uuid generator instead of importing
 
 const simpleId = () => Math.random().toString(36).substring(2, 9);
 

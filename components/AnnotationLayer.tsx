@@ -1,7 +1,8 @@
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { Annotation, ToolType, Point, RectAnnotation, CircleAnnotation, PenAnnotation, TextAnnotation } from '../types';
-import { isPointInRect, isPointInCircle, isPointNearPath, isPointInText } from '../utils/geometry';
+import { Annotation, ToolType, Point, RectAnnotation, CircleAnnotation, PenAnnotation, TextAnnotation, ArrowAnnotation } from '../types';
+import { isPointInRect, isPointInCircle, isPointNearPath, isPointInText, isPointNearLine } from '../utils/geometry';
+import { Pencil, Trash2, MessageSquare } from 'lucide-react';
 
 interface AnnotationLayerProps {
   width: number;
@@ -12,16 +13,20 @@ interface AnnotationLayerProps {
   annotations: Annotation[];
   onAnnotationsChange: (annotations: Annotation[]) => void;
   onAnnotationCreated?: (annotation: Annotation) => void;
-  onAnnotationUpdate?: (annotation: Annotation) => void; // New Callback
+  onAnnotationUpdate?: (annotation: Annotation) => void; 
   onSelect?: (id: string | null) => void;
   selectedId?: string | null;
   backgroundImage: HTMLImageElement | null;
   scale: number;
   page: number;
   
-  // New props
   severity: number;
   reasonCode: string;
+  currentColor: string;
+
+  // New actions for overlay buttons
+  onDelete?: (id: string) => void;
+  onEdit?: (id: string) => void;
 }
 
 const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
@@ -40,7 +45,10 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
   scale,
   page,
   severity,
-  reasonCode
+  reasonCode,
+  currentColor,
+  onDelete,
+  onEdit
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -49,34 +57,21 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
   const [draggedAnnotationId, setDraggedAnnotationId] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState<Point>({ x: 0, y: 0 });
 
-  // Helper to generate IDs
   const generateId = () => Math.random().toString(36).substr(2, 9);
 
-  // Helper to convert hex to rgba
-  const hexToRgba = (hex: string, alpha: number) => {
-    const r = parseInt(hex.slice(1, 3), 16);
-    const g = parseInt(hex.slice(3, 5), 16);
-    const b = parseInt(hex.slice(5, 7), 16);
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-  };
-
-  // Render Function
   const renderCanvas = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Clear canvas
     ctx.clearRect(0, 0, width, height);
     ctx.save();
     
-    // Draw Background Image
     if (backgroundImage) {
       ctx.drawImage(backgroundImage, 0, 0, width, height);
     }
 
-    // Draw Existing Annotations
     [...annotations, currentAnnotation].forEach((ann) => {
       if (!ann) return;
       
@@ -84,11 +79,11 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
       
       ctx.save();
       ctx.beginPath();
-      // Highlight selection
+      
       if (isSelected) {
-          ctx.shadowColor = 'rgba(0, 255, 255, 0.8)'; // Bright Cyan Glow
+          ctx.shadowColor = 'rgba(0, 255, 255, 0.8)';
           ctx.shadowBlur = 20;
-          ctx.strokeStyle = '#00ffff'; // Bright Cyan for selection
+          ctx.strokeStyle = '#00ffff';
       } else {
           ctx.strokeStyle = ann.color;
       }
@@ -105,12 +100,10 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
         ctx.strokeRect(r.x, r.y, r.width, r.height);
         textPos = { x: r.x, y: r.y };
         
-        // Draw Label/Reason
         const labelText = r.label || ann.reasonCode;
         if (labelText) {
           ctx.font = "bold 12px sans-serif";
           ctx.fillStyle = isSelected ? '#00ffff' : r.color;
-          // Add stroke for legibility if background is noisy
           ctx.lineWidth = 3;
           ctx.strokeStyle = 'rgba(0,0,0,0.5)';
           ctx.strokeText(labelText, r.x, r.y - 8);
@@ -133,70 +126,94 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
           ctx.stroke();
           textPos = p.points[0];
         }
+      } else if (ann.type === 'arrow') {
+        const a = ann as ArrowAnnotation;
+        const [start, end] = a.points;
+        const headLength = 15 + (a.strokeWidth * 1.5); // Dynamic head size
+        const dx = end.x - start.x;
+        const dy = end.y - start.y;
+        const angle = Math.atan2(dy, dx);
+        
+        // Draw Line
+        ctx.beginPath();
+        ctx.moveTo(start.x, start.y);
+        ctx.lineTo(end.x, end.y);
+        ctx.stroke();
+
+        // Draw Arrowhead
+        ctx.beginPath();
+        ctx.moveTo(end.x, end.y);
+        ctx.lineTo(end.x - headLength * Math.cos(angle - Math.PI / 6), end.y - headLength * Math.sin(angle - Math.PI / 6));
+        ctx.moveTo(end.x, end.y);
+        ctx.lineTo(end.x - headLength * Math.cos(angle + Math.PI / 6), end.y - headLength * Math.sin(angle + Math.PI / 6));
+        ctx.stroke();
+        
+        textPos = start;
       } else if (ann.type === 'text') {
         const t = ann as TextAnnotation;
         ctx.font = `${t.fontSize}px sans-serif`;
-        ctx.fillStyle = ann.color; // Text uses fill
-        if (isSelected) ctx.fillStyle = '#00ffff';
-        ctx.fillText(t.text, t.x, t.y);
+        
+        const lines = t.text.split('\n');
+        const lineHeight = t.fontSize * 1.2;
+        
+        // Prepare styles for halo effect
+        ctx.lineJoin = "round";
+        ctx.miterLimit = 2;
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
+        ctx.lineWidth = 3;
+
+        lines.forEach((line, i) => {
+            const yPos = t.y + (i * lineHeight);
+            
+            // Draw Halo
+            ctx.strokeText(line, t.x, yPos);
+            
+            // Draw Text
+            ctx.fillStyle = isSelected ? '#00ffff' : ann.color;
+            ctx.fillText(line, t.x, yPos);
+        });
+
         textPos = { x: t.x, y: t.y };
         
-        // Selection box for text
         if (isSelected) {
-            const metrics = ctx.measureText(t.text);
+            let maxWidth = 0;
+            lines.forEach(line => {
+                const metrics = ctx.measureText(line);
+                if (metrics.width > maxWidth) maxWidth = metrics.width;
+            });
+            const totalHeight = lines.length * lineHeight;
+            
             ctx.strokeStyle = '#00ffff';
             ctx.lineWidth = 2;
-            ctx.strokeRect(t.x - 2, t.y - t.fontSize, metrics.width + 4, t.fontSize + 4);
+            ctx.strokeRect(t.x - 4, t.y - t.fontSize, maxWidth + 8, totalHeight + (t.fontSize * 0.2)); 
         }
       }
 
-      // Draw Comment/Status Indicator
-      // Construct display text: [Status] Comment
-      const displayContent = [
-        ann.status ? `[${ann.status}]` : '',
-        ann.comment
-      ].filter(s => s && s.toString().trim().length > 0).join(' ');
+      // Render Comment/Status Overlay (Only if NOT text annotation)
+      if (ann.type !== 'text') {
+          const displayContent = [
+            ann.status ? `[${ann.status}]` : '',
+            ann.comment
+          ].filter(s => s && s.toString().trim().length > 0).join(' ');
 
-      if (displayContent) {
-          // Increase visibility configuration
-          ctx.font = "bold 14px sans-serif";
-          const padding = 8;
-          const textMetrics = ctx.measureText(displayContent);
-          const bgWidth = textMetrics.width + (padding * 2);
-          const bgHeight = 26;
-          
-          // Determine position
-          let boxX = textPos.x;
-          let boxY = textPos.y - 35; // Default: Above the shape
-          
-          // Adjust for Text annotations to be below
-          if (ann.type === 'text') {
-              boxY = textPos.y + 10;
+          if (displayContent) {
+              ctx.font = "bold 14px sans-serif";
+              
+              let drawX = textPos.x;
+              let drawY = textPos.y - 22; 
+
+              // Draw Text with White Halo (Standard Comment Style)
+              ctx.textBaseline = "middle";
+              
+              ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
+              ctx.lineWidth = 3;
+              ctx.strokeText(displayContent, drawX, drawY);
+              
+              ctx.fillStyle = ann.color;
+              ctx.fillText(displayContent, drawX, drawY);
+              
+              ctx.textBaseline = "alphabetic";
           }
-
-          // Draw Background (Transparent Severity Color)
-          ctx.fillStyle = hexToRgba(ann.color, 0.15); 
-          ctx.shadowBlur = 0; 
-          ctx.fillRect(boxX, boxY, bgWidth, bgHeight);
-
-          // Draw Border (Solid Severity Color)
-          ctx.strokeStyle = ann.color;
-          ctx.lineWidth = 1;
-          ctx.strokeRect(boxX, boxY, bgWidth, bgHeight);
-          
-          // Draw Text (Solid Severity Color)
-          ctx.fillStyle = ann.color;
-          ctx.textBaseline = "middle";
-          
-          // Add text shadow for contrast against document content
-          ctx.shadowColor = "rgba(0,0,0,1)";
-          ctx.shadowBlur = 3;
-          
-          ctx.fillText(displayContent, boxX + padding, boxY + (bgHeight / 2));
-          
-          // Reset baseline and shadow
-          ctx.shadowBlur = 0;
-          ctx.textBaseline = "alphabetic";
       }
 
       ctx.restore();
@@ -209,7 +226,6 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
     renderCanvas();
   }, [renderCanvas]);
 
-  // Coordinate mapping
   const getCanvasPoint = (e: React.MouseEvent): Point => {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
@@ -221,14 +237,12 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    // If hand tool, we don't handle annotations
     if (tool === 'hand') return;
 
     const point = getCanvasPoint(e);
 
     if (tool === 'select') {
       let foundHit = false;
-      // Hit detection (reverse order to pick top-most)
       for (let i = annotations.length - 1; i >= 0; i--) {
         const ann = annotations[i];
         let hit = false;
@@ -238,6 +252,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
         if (ann.type === 'rect') hit = isPointInRect(point, ann as RectAnnotation);
         else if (ann.type === 'circle') hit = isPointInCircle(point, ann as CircleAnnotation);
         else if (ann.type === 'pen') hit = isPointNearPath(point, ann as PenAnnotation);
+        else if (ann.type === 'arrow') hit = isPointNearLine(point, ann as ArrowAnnotation);
         else if (ann.type === 'text' && ctx) hit = isPointInText(point, ann as TextAnnotation, ctx);
 
         if (hit) {
@@ -249,7 +264,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
              setDragOffset({ x: point.x - ann.x, y: point.y - ann.y });
           } else if (ann.type === 'circle') {
              setDragOffset({ x: point.x - (ann as CircleAnnotation).x, y: point.y - (ann as CircleAnnotation).y });
-          } else if (ann.type === 'pen') {
+          } else if (ann.type === 'pen' || ann.type === 'arrow') {
              setDragOffset({ x: point.x, y: point.y }); 
           }
           break;
@@ -257,42 +272,40 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
       }
       
       if (!foundHit && onSelect) {
+          // Do not deselect here if clicking buttons/overlay, but the overlay stops propagation
+          // so this only runs if clicking the canvas background
           onSelect(null);
       }
       return;
     }
 
     if (tool === 'text') {
-       const text = prompt("Enter text:", "Annotation");
-       if (text) {
-           const newAnn: TextAnnotation = {
-               id: generateId(),
-               type: 'text',
-               x: point.x,
-               y: point.y,
-               text,
-               color: '#ffffff', // Placeholder, will be overriden by creation logic in parent usually but good default
-               strokeWidth: 1, 
-               fontSize,
-               page,
-               severity,
-               reasonCode,
-               status: 'New'
-           };
-           onAnnotationsChange([...annotations, newAnn]);
-           onAnnotationCreated?.(newAnn);
-       }
+       const newAnn: TextAnnotation = {
+           id: generateId(),
+           type: 'text',
+           x: point.x,
+           y: point.y,
+           text: "Enter Text",
+           color: currentColor,
+           strokeWidth: 1, 
+           fontSize,
+           page,
+           severity,
+           reasonCode,
+           status: 'New'
+       };
+       onAnnotationsChange([...annotations, newAnn]);
+       onAnnotationCreated?.(newAnn);
        return;
     }
 
-    // Start drawing
     setIsDrawing(true);
     setStartPoint(point);
     if (onSelect) onSelect(null);
 
     const baseAnn = {
       id: generateId(),
-      color: '#ffffff', // Placeholder
+      color: currentColor,
       strokeWidth,
       page,
       severity,
@@ -306,6 +319,8 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
       setCurrentAnnotation({ ...baseAnn, type: 'circle', x: point.x, y: point.y, radius: 0 } as CircleAnnotation);
     } else if (tool === 'pen') {
       setCurrentAnnotation({ ...baseAnn, type: 'pen', points: [point] } as PenAnnotation);
+    } else if (tool === 'arrow') {
+      setCurrentAnnotation({ ...baseAnn, type: 'arrow', points: [point, point] } as ArrowAnnotation);
     }
   };
 
@@ -315,7 +330,6 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
     const point = getCanvasPoint(e);
 
     if (draggedAnnotationId) {
-        // Move logic
         const updated = annotations.map(ann => {
             if (ann.id !== draggedAnnotationId) return ann;
             
@@ -329,9 +343,16 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
                 const pen = ann as PenAnnotation;
                 const dx = point.x - dragOffset.x;
                 const dy = point.y - dragOffset.y;
-                // Move all points
                 const newPoints = pen.points.map(p => ({ x: p.x + dx, y: p.y + dy }));
                 setDragOffset({ x: point.x, y: point.y }); 
+                return { ...ann, points: newPoints };
+            }
+            if (ann.type === 'arrow') {
+                const arr = ann as ArrowAnnotation;
+                const dx = point.x - dragOffset.x;
+                const dy = point.y - dragOffset.y;
+                const newPoints = arr.points.map(p => ({ x: p.x + dx, y: p.y + dy })) as [Point, Point];
+                setDragOffset({ x: point.x, y: point.y });
                 return { ...ann, points: newPoints };
             }
             return ann;
@@ -360,13 +381,18 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
         ...pen,
         points: [...pen.points, point]
       });
+    } else if (tool === 'arrow') {
+      const arr = currentAnnotation as ArrowAnnotation;
+      setCurrentAnnotation({
+        ...arr,
+        points: [arr.points[0], point]
+      });
     }
   };
 
   const handleMouseUp = () => {
     if (tool === 'hand') return;
     
-    // If we were dragging, check if we need to emit update event
     if (draggedAnnotationId && onAnnotationUpdate) {
         const draggedAnn = annotations.find(a => a.id === draggedAnnotationId);
         if (draggedAnn) {
@@ -381,29 +407,111 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
       const newAnn = { ...currentAnnotation };
       onAnnotationsChange([...annotations, newAnn]);
       onAnnotationCreated?.(newAnn);
-      if (onSelect) onSelect(newAnn.id); // Select newly created
+      if (onSelect) onSelect(newAnn.id); 
       setCurrentAnnotation(null);
     }
     setStartPoint(null);
   };
 
-  // Determine Cursor
   let cursor = 'cursor-crosshair';
   if (tool === 'select') cursor = 'cursor-default';
   if (tool === 'hand') cursor = 'cursor-grab active:cursor-grabbing';
 
+  // Calculate overlay position for selected annotation
+  const getSelectedAnnotationBounds = () => {
+      const ann = annotations.find(a => a.id === selectedId);
+      if (!ann) return null;
+
+      let minX = 0, minY = 0, width = 0;
+
+      if (ann.type === 'rect') {
+          const r = ann as RectAnnotation;
+          minX = r.x;
+          minY = r.y;
+          width = r.width;
+      } else if (ann.type === 'circle') {
+          const c = ann as CircleAnnotation;
+          minX = c.x - c.radius;
+          minY = c.y - c.radius;
+          width = c.radius * 2;
+      } else if (ann.type === 'text') {
+          const t = ann as TextAnnotation;
+          minX = t.x;
+          minY = t.y - t.fontSize; 
+          // Estimate width
+          const ctx = canvasRef.current?.getContext('2d');
+          if (ctx) {
+             ctx.font = `${t.fontSize}px sans-serif`;
+             const metrics = ctx.measureText(t.text.split('\n')[0]);
+             width = metrics.width;
+          } else {
+             width = 100;
+          }
+      } else if (ann.type === 'pen') {
+          const p = ann as PenAnnotation;
+          if (p.points.length === 0) return null;
+          const xs = p.points.map(pt => pt.x);
+          const ys = p.points.map(pt => pt.y);
+          minX = Math.min(...xs);
+          minY = Math.min(...ys);
+          width = Math.max(...xs) - minX;
+      } else if (ann.type === 'arrow') {
+          const a = ann as ArrowAnnotation;
+          const xs = a.points.map(pt => pt.x);
+          const ys = a.points.map(pt => pt.y);
+          minX = Math.min(...xs);
+          minY = Math.min(...ys);
+          width = Math.max(...xs) - minX;
+      }
+
+      return { x: minX, y: minY, w: width };
+  };
+
+  const selectedBounds = getSelectedAnnotationBounds();
+
   return (
-    <canvas
-      ref={canvasRef}
-      width={width}
-      height={height}
-      style={{ width: '100%', height: '100%' }}
-      className={`border border-gray-700 bg-gray-800 shadow-xl ${cursor} ${tool === 'hand' ? 'pointer-events-none' : ''}`}
-      onMouseDown={handleMouseDown}
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
-      onMouseLeave={handleMouseUp}
-    />
+    <div className="relative w-full h-full group">
+        <canvas
+            ref={canvasRef}
+            width={width}
+            height={height}
+            style={{ width: '100%', height: '100%' }}
+            className={`border border-gray-700 bg-gray-800 shadow-xl ${cursor} ${tool === 'hand' ? 'pointer-events-none' : ''}`}
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onMouseLeave={handleMouseUp}
+        />
+        
+        {/* Context Menu Overlay */}
+        {selectedId && selectedBounds && (
+            <div 
+                className="absolute flex items-center gap-1 bg-gray-900 border border-gray-600 p-1 rounded-lg shadow-xl z-10 animate-in zoom-in-95 duration-150"
+                style={{
+                    left: Math.max(0, selectedBounds.x * scale),
+                    top: Math.max(0, (selectedBounds.y * scale) - 45), // Position above
+                    transform: 'translateY(0)' // Reset transform
+                }}
+                onMouseDown={(e) => e.stopPropagation()} // Prevent canvas drag when clicking menu
+            >
+                <button 
+                    onClick={() => onEdit && onEdit(selectedId)}
+                    className="p-1.5 hover:bg-gray-700 text-blue-400 rounded-md transition-colors"
+                    title="Edit"
+                >
+                    <Pencil className="w-4 h-4" />
+                </button>
+                <div className="w-px h-4 bg-gray-700 mx-0.5"></div>
+                <button 
+                    onClick={() => onDelete && onDelete(selectedId)}
+                    className="p-1.5 hover:bg-red-900/50 text-red-400 rounded-md transition-colors"
+                    title="Delete"
+                >
+                    <Trash2 className="w-4 h-4" />
+                </button>
+            </div>
+        )}
+    </div>
   );
 };
 

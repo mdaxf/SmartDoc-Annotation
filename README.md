@@ -1,3 +1,4 @@
+
 # SmartDoc Annotator Library
 
 A powerful, customizable JavaScript library for document annotation (Images & PDF). It supports rich drawing tools, shape manipulation, deep zoom, and AI-powered auto-annotation using Google Gemini Vision.
@@ -8,10 +9,14 @@ Designed for integration into existing web applications (React, Angular, Vue, or
 
 ## 🚀 Features
 
-*   **Multi-Format Support**: Load Images (`.jpg`, `.png`) and Documents (`.pdf`) natively.
-*   **Rich Annotation Tools**: Pen, Rectangle, Circle, Text, and Hand (Pan) tools.
+*   **Multi-Format Support**: Load Images (`.jpg`, `.png`, `.webp`) and Documents (`.pdf`) natively.
+*   **Rich Annotation Tools**: Pen, Rectangle, Circle, Text, Arrow, and Hand (Pan) tools.
+*   **Context Actions**: Click any annotation to reveal quick **Edit** and **Delete** buttons directly on the canvas.
 *   **PDF Pagination**: Full support for multi-page PDF navigation and annotation.
-*   **Zoom & Pan**: `Ctrl + Scroll` to zoom (0.1x to 5.0x) and Hand tool for panning.
+*   **Zoom & View**: 
+    *   `Ctrl + Scroll` to zoom (0.1x to 5.0x).
+    *   **Fullscreen Mode** for immersive editing.
+    *   **Fit to Screen** and Hand tool for easy navigation.
 *   **Rich Metadata**: 
     *   **Severity**: Visual color coding (1-4) with customizable colors.
     *   **Reason Codes**: Configurable dropdown lists for defect categorization.
@@ -24,40 +29,6 @@ Designed for integration into existing web applications (React, Angular, Vue, or
 ---
 
 ## 📦 Installation & Usage
-
-
-How to generate the SmartDoc Bundle
-===================================
-
-To use SmartDoc in a legacy application or Vanilla JS environment, you need to build the single-file bundle.
-
-1. Install Dependencies
-   --------------------
-   Ensure you have Node.js installed, then run:
-   
-   npm install
-
-2. Build the Library
-   -----------------
-   Run the build script configured in vite.config.ts:
-   
-   npm run build
-
-3. Output
-   ------
-   The build process will generate:
-   - distribute/smart-doc.bundle.js (The UMD bundle for <script> tags)
-   - distribute/style.css (If any CSS extraction occurs)
-
-4. Usage
-   -----
-   Copy `distribute/smart-doc.bundle.js` to your project and include it:
-   
-   <script src="smart-doc.bundle.js"></script>
-   <script>
-       window.SmartDoc.create('root', { ... });
-   </script>
-
 
 ### 1. Distributed Mode (Vanilla JS / Legacy Apps)
 
@@ -142,4 +113,5 @@ To enable the "Auto-Annotate" feature:
 *   **Scroll**: Pan vertically (if zoomed out) or natural scroll.
 *   **Ctrl + Scroll**: Zoom In / Zoom Out.
 *   **Drag (Hand Tool)**: Pan the document canvas.
-
+*   **Delete / Backspace**: Delete selected annotation.
+*   **Click Annotation**: Reveal context menu (Edit/Delete).
