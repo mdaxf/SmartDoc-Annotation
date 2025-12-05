@@ -4,9 +4,22 @@ import { Annotation, RectAnnotation } from "../types";
 
 const simpleId = () => Math.random().toString(36).substring(2, 9);
 
+const getApiKey = (): string | undefined => {
+  try {
+    if (typeof process !== 'undefined' && process.env) {
+      return process.env.API_KEY;
+    }
+  } catch (e) {
+    console.warn("Environment access failed");
+  }
+  return undefined;
+};
+
 export const analyzeImageForAnnotations = async (base64Image: string, width: number, height: number): Promise<Annotation[]> => {
-  const apiKey = process.env.API_KEY;
+  const apiKey = getApiKey();
+  
   if (!apiKey) {
+    console.error("API Key not found. Please ensure process.env.API_KEY is set.");
     throw new Error("API Key not found in environment");
   }
 

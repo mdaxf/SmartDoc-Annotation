@@ -6,7 +6,11 @@ import path from 'path';
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
-  // define: { 'process.env': {} } // Removed to allow access to process.env.API_KEY as required
+  define: { 
+    // Mocks process.env to avoid ReferenceError in browser environments
+    // Specific keys like process.env.API_KEY are replaced by Vite during build if defined in .env
+    'process.env': {} 
+  },
   build: {
     // Output to 'distribute' folder as requested
     outDir: 'distribute',

@@ -52,11 +52,30 @@
 
     </div>
 
+    <!-- 
+      ========================================
+      OPTION A: DEVELOPMENT MODE (Vite + TS)
+      ========================================
+    -->
     <script type="module">
         import { createSmartDoc } from '../smartDoc.ts';
         window.SmartDoc = { create: createSmartDoc };
         window.dispatchEvent(new Event('library-loaded'));
     </script>
+
+    <!-- 
+      ========================================
+      OPTION B: PRODUCTION / LEGACY MODE
+      ========================================
+      1. Run `npm run build`
+      2. Uncomment lines below
+    -->
+    <!-- 
+    <script src="../distribute/smart-doc.bundle.js"></script>
+    <script>
+        window.dispatchEvent(new Event('library-loaded'));
+    </script> 
+    -->
 
     <script>
         let docInstance = null;

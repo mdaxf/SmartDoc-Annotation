@@ -7,6 +7,49 @@ Designed for integration into existing web applications (React, Angular, Vue, or
 
 ---
 
+## 🚀 Quick Start (Running Examples)
+
+**Note:** This library uses ES Modules and TypeScript, which cannot be run directly from the file system (`file://`). You must use a local development server.
+
+1.  **Install Dependencies**
+    ```bash
+    npm install
+    ```
+
+2.  **Start Development Server**
+    ```bash
+    npm run dev
+    ```
+
+3.  **View Examples**
+    Open your browser to the URL provided (usually `http://localhost:5173`) and navigate to:
+    *   `/examples/vanilla-pdf-multipage.html`
+    *   `/examples/vanilla-integration.html`
+
+---
+
+## 🏗️ Building for Production (Legacy JS)
+
+The examples above use Vite to compile TypeScript on the fly. To use this library in a standard or legacy JavaScript application:
+
+1.  **Run the Build Command**:
+    ```bash
+    npm run build
+    ```
+2.  **Locate the Output**:
+    The build will generate a file at `distribute/smart-doc.bundle.js`.
+3.  **Include in your HTML**:
+    ```html
+    <link rel="stylesheet" href="distribute/style.css"> <!-- If styles are extracted -->
+    <script src="distribute/smart-doc.bundle.js"></script>
+    <script>
+       // window.SmartDoc is now available globally
+       window.SmartDoc.create('container-id', { ... });
+    </script>
+    ```
+
+---
+
 ## 🚀 Features
 
 *   **Multi-Format Support**: Load Images (`.jpg`, `.png`, `.webp`) and Documents (`.pdf`) natively.

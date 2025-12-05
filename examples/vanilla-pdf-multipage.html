@@ -7,7 +7,10 @@
     <title>SmartDoc - Multi-Page PDF Example</title>
     
     <!-- 1. Styles -->
+    <!-- DEV MODE: Links to source css -->
     <link rel="stylesheet" href="../index.css"> 
+    <!-- PROD MODE: Link to built css -->
+    <!-- <link rel="stylesheet" href="../distribute/style.css"> -->
     
     <!-- 2. Tailwind (for layout only) -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -23,9 +26,30 @@
             position: relative; 
             box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
         }
+        #error-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.85);
+            color: white;
+            z-index: 9999;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+        }
     </style>
 </head>
 <body class="bg-slate-900 p-8 font-sans text-slate-200">
+
+    <div id="error-overlay">
+        <div class="max-w-md p-6 bg-red-900/50 border-2 border-red-500 rounded-lg">
+            <h2 class="text-2xl font-bold mb-2">Setup Error</h2>
+            <p class="mb-4">Failed to load the library. You are likely running this file directly from the file system (file://).</p>
+            <p class="text-sm font-mono bg-black/30 p-2 rounded">
+                Please run `npm run dev` and open http://localhost:5173/examples/vanilla-pdf-multipage.html
+            </p>
+        </div>
+    </div>
 
     <div class="max-w-6xl mx-auto space-y-6">
         
@@ -67,12 +91,38 @@
 
     </div>
 
-    <!-- 3. Mock the Library Loading -->
+    <!-- 
+      ========================================
+      OPTION A: DEVELOPMENT MODE (Vite + TS)
+      ========================================
+      This works when running `npm run dev`
+    -->
     <script type="module">
-        import { createSmartDoc } from '../smartDoc.ts';
-        window.SmartDoc = { create: createSmartDoc };
-        window.dispatchEvent(new Event('library-loaded'));
+        try {
+            import { createSmartDoc } from '../smartDoc.ts';
+            window.SmartDoc = { create: createSmartDoc };
+            window.dispatchEvent(new Event('library-loaded'));
+        } catch (e) {
+            console.error(e);
+            document.getElementById('error-overlay').style.display = 'flex';
+        }
     </script>
+
+    <!-- 
+      ========================================
+      OPTION B: PRODUCTION / LEGACY MODE
+      ========================================
+      1. Run `npm run build`
+      2. Uncomment the lines below
+      3. Remove the "OPTION A" script block above
+    -->
+    <!-- 
+    <script src="../distribute/smart-doc.bundle.js"></script>
+    <script>
+        // In legacy mode, window.SmartDoc is automatically created by the bundle
+        window.dispatchEvent(new Event('library-loaded'));
+    </script> 
+    -->
 
     <script>
         function log(msg) {
