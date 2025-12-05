@@ -950,7 +950,7 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
         {/* Workspace - Continuous Scroll */}
         <div 
              ref={workspaceRef}
-             className={`flex-1 relative bg-gray-900/50 overflow-auto flex flex-col items-center p-8 gap-8 ${tool === 'hand' ? 'cursor-grab active:cursor-grabbing' : ''}`}
+             className={`flex-1 relative bg-gray-900/50 overflow-auto flex flex-col items-center p-8 gap-8 min-h-0 ${tool === 'hand' ? 'cursor-grab active:cursor-grabbing' : ''}`}
              style={{ 
                  backgroundImage: 'radial-gradient(#374151 1px, transparent 1px)', 
                  backgroundSize: '20px 20px',
