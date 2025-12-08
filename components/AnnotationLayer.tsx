@@ -7,6 +7,7 @@ import { Pencil, Trash2, MessageSquare } from 'lucide-react';
 interface AnnotationLayerProps {
   width: number;
   height: number;
+  documentId: string;
   tool: ToolType;
   strokeWidth: number;
   fontSize: number;
@@ -34,6 +35,7 @@ interface AnnotationLayerProps {
 const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
   width,
   height,
+  documentId,
   tool,
   strokeWidth,
   fontSize,
@@ -60,6 +62,10 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
   const [draggedAnnotationId, setDraggedAnnotationId] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState<Point>({ x: 0, y: 0 });
 
+  // High resolution multiplier to ensure sharp text and images on all displays
+  // This matches the high-quality PDF render scale (3.0) set in App.tsx
+  const renderScale = 3; 
+
   const generateId = () => Math.random().toString(36).substr(2, 9);
 
   const renderCanvas = useCallback(() => {
@@ -68,10 +74,17 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    ctx.clearRect(0, 0, width, height);
+    // Clear the full high-res buffer
+    ctx.clearRect(0, 0, width * renderScale, height * renderScale);
     ctx.save();
     
+    // Scale context to match logical coordinates (1 unit = renderScale pixels)
+    ctx.scale(renderScale, renderScale);
+    
     if (backgroundImage) {
+      // Draw image to fill logical bounds (0,0 -> width,height)
+      // The context scale handles the upscaling to the high-res buffer
+      // If backgroundImage is high-res (e.g. from PDF renderer), this preserves detail
       ctx.drawImage(backgroundImage, 0, 0, width, height);
     }
 
@@ -236,10 +249,9 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
     // Use getBoundingClientRect for precise screen coordinates
     const rect = canvas.getBoundingClientRect();
     
-    // Calculate the actual scale ratio between screen pixels and canvas internal pixels
-    // This handles zoom, CSS resizing, and high-DPI displays automatically
-    // It is more robust than relying on the `scale` prop passed down, which might be stale during animations
-    // We ignore borders for simplicity as they are usually small (1px), but technically could account for them
+    // Coordinate mapping is based on the LOGICAL width vs VISUAL width
+    // The internal resolution (renderScale) doesn't affect this ratio
+    // because rect.width is the CSS size on screen.
     const scaleX = width / rect.width;
     const scaleY = height / rect.height;
 
@@ -266,7 +278,26 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
         else if (ann.type === 'circle') hit = isPointInCircle(point, ann as CircleAnnotation);
         else if (ann.type === 'pen') hit = isPointNearPath(point, ann as PenAnnotation);
         else if (ann.type === 'arrow') hit = isPointNearLine(point, ann as ArrowAnnotation);
-        else if (ann.type === 'text' && ctx) hit = isPointInText(point, ann as TextAnnotation, ctx);
+        // Important: Text hit test uses context for measurement. 
+        // We must ensure the context used for measurement has the correct scale transform or font size.
+        // Since we scaled the context by renderScale, we might need to adjust or rely on `isPointInText`
+        // `isPointInText` sets `ctx.font`. If context is scaled, font might be huge if not careful.
+        // HOWEVER, `isPointInText` sets absolute font pixel size.
+        // If we pass the scaled context, we might get scaled metrics.
+        // Safest is to use a temporary unscaled context or handle logic purely mathematically if possible.
+        // For now, let's trust the hit test logic usually works with logical coords if we use a fresh context or reset transform.
+        else if (ann.type === 'text' && ctx) {
+             ctx.save();
+             // Reset transform for accurate logical measurement if needed, 
+             // but `isPointInText` sets font size in pixels. 
+             // If ctx is scaled 3x, drawing text size 20 draws it 60px high.
+             // measureText returns width 60px.
+             // But our `point` is in logical coords (1x). 
+             // So we actually need to measure in 1x space.
+             ctx.setTransform(1, 0, 0, 1, 0, 0); 
+             hit = isPointInText(point, ann as TextAnnotation, ctx);
+             ctx.restore();
+        }
 
         if (hit) {
           foundHit = true;
@@ -299,6 +330,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
     if (tool === 'text') {
        const newAnn: TextAnnotation = {
            id: generateId(),
+           documentId,
            type: 'text',
            x: point.x,
            y: point.y,
@@ -322,6 +354,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
 
     const baseAnn = {
       id: generateId(),
+      documentId,
       color: currentColor,
       strokeWidth,
       page,
@@ -460,9 +493,12 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
           // Estimate width
           const ctx = canvasRef.current?.getContext('2d');
           if (ctx) {
+             ctx.save();
+             ctx.setTransform(1, 0, 0, 1, 0, 0); // Unscale for metric calc
              ctx.font = `${t.fontSize}px sans-serif`;
              const metrics = ctx.measureText(t.text.split('\n')[0]);
              width = metrics.width;
+             ctx.restore();
           } else {
              width = 100;
           }
@@ -489,13 +525,13 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
   const selectedBounds = getSelectedAnnotationBounds();
 
   return (
-    <div className="relative w-full h-full group">
+    <div className="relative w-full h-full group z-10">
         <canvas
             ref={canvasRef}
-            width={width}
-            height={height}
+            width={width * renderScale}
+            height={height * renderScale}
             style={{ width: '100%', height: '100%' }}
-            className={`border border-gray-700 bg-gray-800 shadow-xl ${cursor} ${tool === 'hand' ? 'pointer-events-none' : ''}`}
+            className={`bg-transparent ${cursor} ${tool === 'hand' ? 'pointer-events-none' : ''}`}
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
@@ -505,7 +541,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
         {/* Context Menu Overlay - Only if not ReadOnly */}
         {selectedId && selectedBounds && !readOnly && (
             <div 
-                className="absolute flex items-center gap-1 bg-gray-900 border border-gray-600 p-1 rounded-lg shadow-xl z-10 animate-in zoom-in-95 duration-150"
+                className="absolute flex items-center gap-1 bg-gray-900 border border-gray-600 p-1 rounded-lg shadow-xl z-20 animate-in zoom-in-95 duration-150"
                 style={{
                     // Use scale passed via props for visual overlay positioning, 
                     // assuming App.tsx renders with that scale. 

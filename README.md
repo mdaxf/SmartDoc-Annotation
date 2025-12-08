@@ -7,6 +7,13 @@ Designed for integration into existing web applications (React, Angular, Vue, or
 
 ---
 
+## 📚 Documentation
+
+*   **[React / Modern Usage](./FULL_DOCUMENTATION.md)**: For using the library as an NPM module.
+*   **[Legacy / Vanilla JS Usage](./LEGACY_USAGE.md)**: For using the library via `<script>` tag in HTML/jQuery apps.
+
+---
+
 ## 🚀 Quick Start (Running Examples)
 
 **Note:** This library uses ES Modules and TypeScript, which cannot be run directly from the file system (`file://`). You must use a local development server.
@@ -23,14 +30,14 @@ Designed for integration into existing web applications (React, Angular, Vue, or
 
 3.  **View Examples**
     Open your browser to the URL provided (usually `http://localhost:5173`) and navigate to:
+    *   `/example.html` (The "Kitchen Sink" Legacy Demo)
     *   `/examples/vanilla-pdf-multipage.html`
-    *   `/examples/vanilla-integration.html`
 
 ---
 
 ## 🏗️ Building for Production (Legacy JS)
 
-The examples above use Vite to compile TypeScript on the fly. To use this library in a standard or legacy JavaScript application:
+To use this library in a standard or legacy JavaScript application:
 
 1.  **Run the Build Command**:
     ```bash
@@ -40,7 +47,6 @@ The examples above use Vite to compile TypeScript on the fly. To use this librar
     The build will generate a file at `distribute/smart-doc.bundle.js`.
 3.  **Include in your HTML**:
     ```html
-    <link rel="stylesheet" href="distribute/style.css"> <!-- If styles are extracted -->
     <script src="distribute/smart-doc.bundle.js"></script>
     <script>
        // window.SmartDoc is now available globally
@@ -112,23 +118,6 @@ useEffect(() => {
 
 ---
 
-## ⚙️ Configuration API
-
-The `createSmartDoc(containerId, config, events)` function accepts a configuration object:
-
-| Property | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `documentSrc` | `string` | `null` | Auto-load a URL (Image or PDF) on init. |
-| `initialAnnotations` | `Annotation[]` | `[]` | Array of existing annotations to render. |
-| `severityOptions` | `Object` | `{1..4}` | Map of Severity Level (Int) to Hex Color Code. |
-| `reasonCodeOptions` | `string[]` | `['Defect 1'...]` | List of options for the "Reason Code" dropdown. |
-| `statusOptions` | `string[]` | `['New', ...]` | List of options for the "Status" dropdown. |
-| `hideLoadFileBtn` | `boolean` | `false` | Hide the built-in file upload button. |
-| `hideSaveJsonBtn` | `boolean` | `false` | Hide the built-in "Save JSON" button. |
-| `styleConfig` | `Object` | `{}` | CSS overrides for `container`, `toolbar`, `workspace`. |
-
----
-
 ## ⚡ Events API
 
 Pass an `events` object as the third argument to listen for user actions.
@@ -140,21 +129,3 @@ Pass an `events` object as the third argument to listen for user actions.
 | `onAnnotationUpdate` | `(ann) => void` | Fired when an annotation is moved, resized, or edited. |
 | `onAnnotationDelete` | `(id) => void` | Fired when an annotation is deleted. |
 | `onClearAnnotations` | `() => void` | Fired when the "Clear" button is pressed. |
-
----
-
-## 🤖 AI Configuration
-
-To enable the "Auto-Annotate" feature:
-1. Ensure `process.env.API_KEY` is set in the build environment (pointing to a Google Gemini API Key).
-2. The `analyzeImageForAnnotations` service handles the API communication.
-
----
-
-## ⌨️ Shortcuts
-
-*   **Scroll**: Pan vertically (if zoomed out) or natural scroll.
-*   **Ctrl + Scroll**: Zoom In / Zoom Out.
-*   **Drag (Hand Tool)**: Pan the document canvas.
-*   **Delete / Backspace**: Delete selected annotation.
-*   **Click Annotation**: Reveal context menu (Edit/Delete).

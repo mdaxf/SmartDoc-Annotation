@@ -9,7 +9,14 @@ const init = () => {
 
     createSmartDoc('root', {
         // Configuration Options
-        // documentSrc: 'https://example.com/sample.pdf', // Auto-load URL
+        
+        // Auto-load Array of URLs (Images)
+     /*   documentSrc: [
+            'https://images.unsplash.com/photo-1542282088-fe8426682b8f?auto=format&fit=crop&w=800&q=80', // Car 1
+            'https://images.unsplash.com/photo-1580273916550-e323be2ebdd9?auto=format&fit=crop&w=800&q=80', // Car 2
+            'https://images.unsplash.com/photo-1494905998402-395d579af97d?auto=format&fit=crop&w=800&q=80'  // Car 3
+        ],  */
+
         // hideLoadFileBtn: true,
         // hideSaveJsonBtn: false,
         
@@ -40,6 +47,8 @@ const init = () => {
         onAnnotationUpdate: (ann) => console.log('SmartDoc: Updated', ann),
         onAnnotationDelete: (id) => console.log('SmartDoc: Deleted', id),
         onClearAnnotations: () => console.log('SmartDoc: Cleared'),
+        onPhotoAdd: (data) => console.log('SmartDoc: Photo Taken', data),
+        onUpload: (data) => console.log('SmartDoc: File Uploaded', data),
         onSave: (data) => {
             console.log('SmartDoc: Save Triggered via Callback', data);
             alert(`Saved ${data.annotations.length} annotations for file: ${data.file}. Check console for full data object.`);

@@ -4,16 +4,17 @@ import AnnotationLayer from './components/AnnotationLayer';
 import Toolbar from './components/Toolbar';
 import CameraModal from './components/CameraModal';
 import ThumbnailPanel from './components/ThumbnailPanel';
-import { Annotation, ToolType, SmartDocProps, TextAnnotation, SmartDocHandle, PageData } from './types';
+import { Annotation, ToolType, SmartDocProps, TextAnnotation, SmartDocHandle, PageData, DocumentMeta } from './types';
 import { analyzeImageForAnnotations } from './services/geminiService';
-import { Info, MessageSquare, Trash2, X, Check, ChevronLeft, ChevronRight, Loader2, AlertTriangle, ListChecks, Activity, LayoutTemplate, PanelRightClose, PanelRightOpen, MapPin, Type, Camera, Menu } from 'lucide-react';
+import { parsePptx } from './utils/pptx';
+import { Info, MessageSquare, Trash2, X, Check, ChevronLeft, ChevronRight, Loader2, AlertTriangle, ListChecks, Activity, LayoutTemplate, PanelRightClose, PanelRightOpen, MapPin, Type, Camera, Menu, FileText, Box, FileSpreadsheet } from 'lucide-react';
 import { REASON_CODES, SEVERITY_COLORS, STATUS_OPTIONS } from './constants';
 import * as pdfjsLib from 'pdfjs-dist';
 
 // Configure PDF.js Worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://aistudiocdn.com/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs';
 
-// Internal component to handle rendering of individual pages (especially PDFs)
+// --- Internal Page Renderer ---
 const PageRenderer: React.FC<{
   page: PageData;
   scale: number;
@@ -28,11 +29,12 @@ const PageRenderer: React.FC<{
   selectedId: string | null;
   severity: number;
   reasonCode: string;
-  isVisible: boolean; // prop to optimize rendering
+  isVisible: boolean;
   currentColor: string;
   onDelete: (id: string) => void;
   onEdit: (id: string) => void;
   readOnly?: boolean;
+  onDimensionsUpdate?: (id: string, w: number, h: number) => void;
 }> = ({
   page,
   scale,
@@ -50,101 +52,335 @@ const PageRenderer: React.FC<{
   currentColor,
   onDelete,
   onEdit,
-  readOnly
+  readOnly,
+  onDimensionsUpdate
 }) => {
   const [bgImage, setBgImage] = useState<HTMLImageElement | null>(null);
   const [isRendering, setIsRendering] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const docxContainerRef = useRef<HTMLDivElement>(null);
+  const modelContainerRef = useRef<HTMLDivElement>(null);
+  const [currentContentBlob, setCurrentContentBlob] = useState<Blob | string | null>(null);
+
+  // Monitor DOCX height changes safely
+  useEffect(() => {
+      // Skip if no docx data or no update handler
+      if (!page.docxData || !onDimensionsUpdate) return;
+
+      const checkHeight = () => {
+          if (docxContainerRef.current) {
+              const scrollHeight = docxContainerRef.current.scrollHeight;
+              const currentHeight = page.height;
+
+              // Only update if the content is significantly larger than current page height
+              // Threshold of 50px prevents jitter.
+              // We also ensure we don't shrink below a reasonable minimum (default 1056)
+              if (scrollHeight > currentHeight + 50) {
+                  // Add a 100px buffer to ensure content fits comfortably
+                  onDimensionsUpdate(page.id, page.width, scrollHeight + 100);
+              }
+          }
+      };
+
+      // Check shortly after render
+      const timer = setTimeout(checkHeight, 500);
+      
+      // Also check via ResizeObserver for robustness
+      let observer: ResizeObserver | null = null;
+      if (docxContainerRef.current) {
+          observer = new ResizeObserver(() => {
+             // Debounce observer calls
+             if(timer) clearTimeout(timer);
+             setTimeout(checkHeight, 100);
+          });
+          observer.observe(docxContainerRef.current);
+      }
+
+      return () => {
+          clearTimeout(timer);
+          observer?.disconnect();
+      };
+  }, [page.docxData, page.height, page.id, page.width, onDimensionsUpdate]);
 
   useEffect(() => {
     let active = true;
+    let loadTimeout: any;
 
     const render = async () => {
-      // If we already have a loaded image for this source, don't re-render unless source changed
-      if (bgImage && (page.imageSrc ? bgImage.src === page.imageSrc : true)) return;
-      
-      setIsRendering(true);
-      
-      try {
-        if (page.imageSrc) {
-           const img = new Image();
-           img.src = page.imageSrc;
-           await new Promise((resolve) => { img.onload = resolve; });
-           if (active) setBgImage(img);
-        } else if (page.pdfPage) {
-           // Render PDF page to canvas then to image
-           const viewport = page.pdfPage.getViewport({ scale: 2.0 }); // High quality render
-           const canvas = document.createElement('canvas');
-           canvas.width = viewport.width;
-           canvas.height = viewport.height;
-           const context = canvas.getContext('2d');
-           if (context) {
-             await page.pdfPage.render({ canvasContext: context, viewport } as any).promise;
-             const imgData = canvas.toDataURL('image/jpeg');
-             const img = new Image();
-             img.src = imgData;
-             if (active) setBgImage(img);
+      // 1. Image Handling
+      if (page.imageSrc) {
+          if (bgImage && bgImage.src === page.imageSrc) return;
+          
+          setIsRendering(true);
+          setLoadError(false);
+
+          loadTimeout = setTimeout(() => {
+             if (active && !bgImage) {
+                 console.warn("Image load timed out:", page.imageSrc);
+                 setIsRendering(false);
+                 setLoadError(true);
+             }
+          }, 15000);
+          
+          const img = new Image();
+          img.crossOrigin = "Anonymous";
+          img.src = page.imageSrc;
+          
+          img.onload = () => {
+              if (active) {
+                  clearTimeout(loadTimeout);
+                  if (img.naturalWidth > 0) {
+                      setBgImage(img);
+                      setIsRendering(false);
+                  } else {
+                      setIsRendering(false);
+                      setLoadError(true);
+                  }
+              }
+          };
+
+          img.onerror = () => {
+              if (active) {
+                  console.warn("Primary load failed, attempting fallback...", page.imageSrc);
+                  const retryImg = new Image();
+                  const isHttp = page.imageSrc!.startsWith('http');
+                  const src = isHttp 
+                    ? `${page.imageSrc}${page.imageSrc!.includes('?') ? '&' : '?'}cb=${Date.now()}`
+                    : page.imageSrc!;
+                  
+                  retryImg.src = src;
+                  retryImg.onload = () => {
+                      if (active) {
+                          clearTimeout(loadTimeout);
+                          setBgImage(retryImg);
+                          setIsRendering(false);
+                      }
+                  };
+                  retryImg.onerror = () => {
+                      if (active) {
+                          clearTimeout(loadTimeout);
+                          setLoadError(true);
+                          setIsRendering(false);
+                      }
+                  };
+              }
+          };
+      } 
+      // 2. PDF Handling
+      else if (page.pdfPage) {
+           if (bgImage) return; 
+           setIsRendering(true);
+           try {
+               // Render at higher scale (3.0) for clearer font weights on high-DPI screens
+               const viewport = page.pdfPage.getViewport({ scale: 3.0 }); 
+               const canvas = document.createElement('canvas');
+               canvas.width = viewport.width;
+               canvas.height = viewport.height;
+               const context = canvas.getContext('2d');
+               if (context) {
+                 await page.pdfPage.render({ canvasContext: context, viewport } as any).promise;
+                 // Use PNG (Lossless) instead of JPEG to preserve sharp text edges
+                 const imgData = canvas.toDataURL('image/png');
+                 const img = new Image();
+                 img.src = imgData;
+                 if (active) {
+                     setBgImage(img);
+                     setIsRendering(false);
+                 }
+               }
+           } catch (e) { 
+               console.error(e);
+               if (active) {
+                   setLoadError(true);
+                   setIsRendering(false);
+               }
            }
-        }
-      } catch (err) {
-        console.error("Error rendering page", page.pageNumber, err);
-      } finally {
-        if (active) setIsRendering(false);
+      }
+      // 3. DOCX Handling
+      else if (page.docxData && docxContainerRef.current) {
+          if (currentContentBlob === page.docxData) return;
+          setIsRendering(true);
+          setCurrentContentBlob(page.docxData);
+          
+          try {
+              const docx = (window as any).docx;
+              if (docx) {
+                  await docx.renderAsync(page.docxData, docxContainerRef.current, null, {
+                      className: 'docx-content',
+                      inWrapper: false, 
+                      ignoreWidth: false, 
+                      ignoreHeight: false,
+                      experimental: true 
+                  });
+              }
+          } catch (e) {
+              console.error("Docx render error", e);
+              if (active) setLoadError(true);
+          } finally {
+              if (active) setIsRendering(false);
+          }
+      }
+      // 4. 3D Model (GLB/GLTF)
+      else if (page.modelSrc && modelContainerRef.current) {
+          if(currentContentBlob === page.modelSrc) return;
+          setCurrentContentBlob(page.modelSrc);
+          // 3D rendering handled by injected <model-viewer> or iframe
+      }
+      // 5. Text/HTML
+      else if (page.textContent) {
+           // Handled in render return directly
       }
     };
 
     render();
 
-    return () => { active = false; };
+    return () => { 
+        active = false; 
+        if (loadTimeout) clearTimeout(loadTimeout);
+    };
   }, [page]);
 
   return (
     <div 
-      className="relative bg-white shadow-xl mb-8 transition-transform origin-top"
+      className="relative bg-white shadow-xl m-auto transition-transform origin-top group shrink-0"
       style={{ 
         width: page.width * scale, 
         height: page.height * scale,
-        // Removed maxWidth: '100%' to ensure correct scaling logic during zoom
       }}
-      id={`page-${page.pageNumber}`}
+      id={`page-${page.id}`}
     >
-      {/* Page Number Indicator */}
+      {/* Page Number */}
       <div className="absolute -left-12 top-0 text-gray-500 font-mono text-sm hidden xl:block">
         Page {page.pageNumber}
       </div>
 
-      {isRendering && !bgImage && (
-        <div className="absolute inset-0 flex items-center justify-center bg-gray-100 text-gray-400">
+      {isRendering && !bgImage && !docxContainerRef.current?.hasChildNodes() && !loadError && (
+        <div className="absolute inset-0 flex items-center justify-center bg-gray-100 text-gray-400 z-10">
            <Loader2 className="w-8 h-8 animate-spin" />
         </div>
       )}
 
-      <AnnotationLayer 
-          width={page.width}
-          height={page.height}
-          tool={tool}
-          strokeWidth={strokeWidth}
-          fontSize={fontSize}
-          annotations={annotations}
-          onAnnotationsChange={onAnnotationsChange}
-          onAnnotationCreated={onAnnotationCreated}
-          onAnnotationUpdate={onAnnotationUpdate}
-          onSelect={onSelect}
-          selectedId={selectedId}
-          backgroundImage={bgImage}
-          scale={scale}
-          page={page.pageNumber}
-          severity={severity}
-          reasonCode={reasonCode}
-          currentColor={currentColor}
-          onDelete={onDelete}
-          onEdit={onEdit}
-          readOnly={readOnly}
-      />
+      {loadError && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-100 text-gray-500 z-10 border-2 border-dashed border-gray-300 m-4 rounded-lg">
+              <AlertTriangle className="w-10 h-10 text-red-400 mb-2" />
+              <p className="font-medium text-red-400">Failed to load content</p>
+          </div>
+      )}
+      
+      {/* Content Layers */}
+      
+      {/* DOCX */}
+      {page.docxData && (
+          <>
+            <style>{`
+                .docx-wrapper { isolation: isolate; }
+                .docx-wrapper * { box-sizing: content-box; }
+                /* Simulate Pages visually for sections */
+                .docx-content > section, .docx-content > article {
+                    background: white;
+                    margin-bottom: 40px;
+                    padding: 40px;
+                    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+                }
+            `}</style>
+            <div 
+                ref={docxContainerRef} 
+                className="absolute inset-0 overflow-visible bg-gray-100 text-black p-8 docx-wrapper z-0 origin-top-left" 
+                style={{ 
+                    // Use CSS transform on the content if needed, but container scaling is handled by parent
+                    // We set width/height to 100% of the parent container which is scaled
+                    backgroundColor: '#f3f4f6',
+                    transform: `scale(${scale})`, // Apply zoom scale inside wrapper
+                    transformOrigin: 'top left',
+                    // Compensate width so it fills scaled area
+                    // e.g. Scale 0.5 -> Width needs to be 200% to fill same visual area? 
+                    // No, parent is sized (W*Scale). Child is 100% of parent (W*Scale).
+                    // We need Child to be W (unscaled).
+                    // So we must inverse scale width.
+                    width: `${(1/scale) * 100}%`,
+                    height: `${(1/scale) * 100}%`
+                }} 
+            />
+          </>
+      )}
+      
+      {/* Text/HTML (Used for PPTX slides) */}
+      {page.textContent && (
+          <div 
+            className="absolute inset-0 overflow-auto bg-white text-black p-8 z-0" 
+            style={{ 
+                // Ensure text is visible (force black color for PPTX)
+                color: 'black',
+                width: '100%',
+                height: '100%'
+            }}
+          >
+              <div 
+                dangerouslySetInnerHTML={{ __html: page.textContent }} 
+                // Apply scale internally if needed, or rely on parent
+                style={{
+                     transform: `scale(${scale})`,
+                     transformOrigin: 'top left',
+                     width: `${(1/scale) * 100}%`
+                }}
+              />
+          </div>
+      )}
+
+      {/* 3D Model */}
+      {page.modelSrc && (
+          <div ref={modelContainerRef} className="absolute inset-0 bg-gray-100 flex items-center justify-center z-0" style={{ width: '100%', height: '100%' }}>
+              <iframe 
+                srcDoc={`
+                    <html>
+                    <head>
+                        <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.4.0/model-viewer.min.js"></script>
+                        <style>body { margin: 0; overflow: hidden; background-color: #f3f4f6; display: flex; justify-content: center; align-items: center; height: 100vh; }</style>
+                    </head>
+                    <body>
+                        <model-viewer src="${page.modelSrc}" camera-controls auto-rotate ar style="width:100%;height:100%;" shadow-intensity="1"></model-viewer>
+                    </body>
+                    </html>
+                `}
+                className="w-full h-full border-none pointer-events-auto"
+                title="3D Viewer"
+              />
+          </div>
+      )}
+
+      {/* Annotation Layer - Z-index 10 to stay on top, but MUST have transparent background */}
+      <div className="absolute inset-0 z-10 pointer-events-none">
+        <div className="w-full h-full pointer-events-auto">
+            <AnnotationLayer 
+                width={page.width}
+                height={page.height}
+                documentId={page.documentId}
+                tool={tool}
+                strokeWidth={strokeWidth}
+                fontSize={fontSize}
+                annotations={annotations}
+                onAnnotationsChange={onAnnotationsChange}
+                onAnnotationCreated={onAnnotationCreated}
+                onAnnotationUpdate={onAnnotationUpdate}
+                onSelect={onSelect}
+                selectedId={selectedId}
+                backgroundImage={bgImage} 
+                scale={scale}
+                page={page.pageNumber}
+                severity={severity}
+                reasonCode={reasonCode}
+                currentColor={currentColor}
+                onDelete={onDelete}
+                onEdit={onEdit}
+                readOnly={readOnly}
+            />
+        </div>
+      </div>
     </div>
   );
 };
 
-
+// ... CommentModal remains same ... 
 const CommentModal: React.FC<any> = ({ isOpen, onClose, onSave, onDelete, initialData, severityOptions, reasonCodeOptions, statusOptions, readOnly }) => {
     const [formData, setFormData] = useState(initialData);
     const commentInputRef = useRef<HTMLTextAreaElement>(null);
@@ -230,7 +466,7 @@ const CommentModal: React.FC<any> = ({ isOpen, onClose, onSave, onDelete, initia
                       </label>
                       <select 
                           value={formData.status}
-                          disabled={readOnly && formData.status !== 'New'} // Allow changing status only if specifically allowed, but for now readOnly locks all
+                          disabled={readOnly && formData.status !== 'New'}
                           onChange={(e) => setFormData((prev:any) => ({ ...prev, status: e.target.value }))}
                           className="w-full bg-gray-900 border border-gray-600 text-white text-sm rounded-lg block p-2 disabled:opacity-70"
                       >
@@ -304,6 +540,7 @@ const CommentModal: React.FC<any> = ({ isOpen, onClose, onSave, onDelete, initia
 
 const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
     documentSrc,
+    documentIds, // New
     initialAnnotations = [],
     severityOptions = SEVERITY_COLORS,
     reasonCodeOptions = REASON_CODES,
@@ -312,6 +549,7 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
     hideSaveJsonBtn,
     hideLoadJsonBtn,
     defaultLayout = 'bottom',
+    navPosition = 'top', // New
     styleConfig,
     events,
     mode = 'full',
@@ -319,206 +557,411 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
     hideCameraBtn = false,
     showThumbnails: initialShowThumbnails = true,
 }, ref) => {
-  // Application State
+  // --- State ---
+  const [documents, setDocuments] = useState<DocumentMeta[]>([]);
+  const [currentDocumentId, setCurrentDocumentId] = useState<string>('');
+  
   const [pages, setPages] = useState<PageData[]>([]);
   const [annotations, setAnnotations] = useState<Annotation[]>(initialAnnotations);
   
-  // Interaction State
+  const pagesRef = useRef<PageData[]>(pages);
+  useEffect(() => { pagesRef.current = pages; }, [pages]);
+
   const [tool, setTool] = useState<ToolType>(defaultTool); 
   const [strokeWidth, setStrokeWidth] = useState<number>(4);
   const [fontSize, setFontSize] = useState<number>(20);
   const [scale, setScale] = useState<number>(1);
   const [autoFit, setAutoFit] = useState<boolean>(true); 
-  
-  // Defect/Severity State
   const [severity, setSeverity] = useState<number>(4); 
   const [reasonCode, setReasonCode] = useState<string>(reasonCodeOptions[0]);
 
-  // Selection & Editing State
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
   const [newAnnotationId, setNewAnnotationId] = useState<string | null>(null);
   const [showCommentModal, setShowCommentModal] = useState(false);
   
-  // File State
-  const [fileName, setFileName] = useState<string>("Untitled");
   const [isLoadingFile, setIsLoadingFile] = useState(false);
   const [activePageIndex, setActivePageIndex] = useState(0);
 
-  // UI State
   const [showRightPanel, setShowRightPanel] = useState<boolean>(false);
   const [layoutMode, setLayoutMode] = useState<'sidebar' | 'bottom'>(defaultLayout);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [isMobile, setIsMobile] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  
-  // New UI Features
   const [showThumbnails, setShowThumbnails] = useState<boolean>(initialShowThumbnails);
   const [showCamera, setShowCamera] = useState<boolean>(false);
   
-  // Fullscreen State
   const containerRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
-  // Panning State
   const workspaceRef = useRef<HTMLDivElement>(null);
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
   const [scrollStart, setScrollStart] = useState({ left: 0, top: 0 });
 
+  // Touch/Pinch Zoom State
+  const touchStartRef = useRef<{ dist: number; scale: number } | null>(null);
+
   const activeColor = severityOptions[severity] || severityOptions[4];
 
-  // Derived Mode Properties
   const isViewOnly = mode === 'viewonly';
-  const isEditMode = mode === 'edit';
-  // Allow drawing only in full mode
   const canDraw = mode === 'full';
-  // Allow editing existing annotations in full and edit modes
   const canEdit = mode === 'full' || mode === 'edit';
-  
-  // Effective ReadOnly passed to layers/modals
-  // AnnotationLayer is readOnly if we are in viewonly OR if we are in edit mode (cannot drag/resize geometries usually, or we can allow it? 
-  // Let's assume Edit Mode allows metadata edit but geometry edit is debatable. 
-  // For simplicity, let's say AnnotationLayer is readOnly in 'viewonly'. In 'edit', you can select but not draw new.)
-  // Actually, AnnotationLayer handles 'tool' logic. If tool is 'select', we can move things.
-  // If we want to prevent moving in 'edit' mode, we'd need a stricter flag. 
-  // Based on prompt "edit: can change status... cannot add new", usually means geometry is locked too? 
-  // Let's assume geometry is editable in 'edit' mode for now, just no new tools.
   const layerReadOnly = isViewOnly; 
-  
-  // Modal ReadOnly: In ViewOnly, modal is read only. In Edit/Full, it is editable.
   const modalReadOnly = isViewOnly;
 
-  // Detect Mobile
+  // Filtered Data for View
+  const visiblePages = pages.filter(p => p.documentId === currentDocumentId);
+  const visibleAnnotations = annotations.filter(a => a.documentId === currentDocumentId);
+  const currentDocumentMeta = documents.find(d => d.id === currentDocumentId);
+
+  // Identify Active Page for Single-Page Rendering
+  const currentPage = visiblePages[activePageIndex];
+
+  // Define dimension update handler with useCallback to prevent infinite render loops
+  const handleDimensionsUpdate = useCallback((id: string, w: number, h: number) => {
+      setPages(prev => prev.map(p => {
+          if (p.id === id) {
+              // Threshold check (5px) to prevent jitter loops on dynamic content
+              if (Math.abs(p.width - w) < 5 && Math.abs(p.height - h) < 5) return p;
+              return { ...p, width: w, height: h };
+          }
+          return p;
+      }));
+  }, []);
+
+  // Notify Ready
   useEffect(() => {
-    const checkMobile = () => {
-        const mobile = window.innerWidth < 768;
-        setIsMobile(mobile);
-        // If mobile, default to bottom layout if not specified
-        if (mobile && defaultLayout === 'sidebar') {
-           // Optional: force bottom layout on mobile init? 
-           // Leaving as is to respect props, but allowing switching.
-        }
-    };
+      if (events?.onSmartDocReady) setTimeout(() => events.onSmartDocReady?.(), 0);
+  }, []);
+
+  // Mobile Check
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
     checkMobile();
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // Logic to process files (Shared between drag-drop, input, and imperative call)
-  const processFiles = useCallback(async (files: FileList | File[], shouldResetAnnotations = true) => {
-      if (!files || files.length === 0) return;
+  // Workspace Wheel Zoom Handler (Ctrl + Wheel)
+  useEffect(() => {
+      const workspace = workspaceRef.current;
+      if (!workspace) return;
 
-      // Reset state based on flag
-      if (shouldResetAnnotations) {
-          setAnnotations([]); 
-          events?.onClearAnnotations?.();
-      }
-      
-      setSelectedAnnotationId(null);
-      setIsLoadingFile(true);
-      if (shouldResetAnnotations) {
-          setAutoFit(true);
-          setPages([]);
-      }
-      
-      const fileList = Array.isArray(files) ? files : Array.from(files);
-      setFileName(prev => shouldResetAnnotations ? (fileList.length > 1 ? `${fileList.length} Files` : fileList[0].name) : `Mixed Content`);
-
-      const newPages: PageData[] = [];
-      const startPageNum = shouldResetAnnotations ? 0 : pages.length;
-
-      try {
-          // Process all files
-          for (let i = 0; i < fileList.length; i++) {
-              const file = fileList[i];
+      const handleWheel = (e: WheelEvent) => {
+          // Standard browser zoom shortcut is Ctrl+Wheel. We intercept this to zoom the workspace instead.
+          if (e.ctrlKey || e.metaKey) {
+              e.preventDefault();
               
-              if (file.type === 'application/pdf') {
-                  const arrayBuffer = await file.arrayBuffer();
-                  const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
-                  const pdf = await loadingTask.promise;
-                  
-                  // Add all pages from PDF
-                  for (let j = 1; j <= pdf.numPages; j++) {
-                      const page = await pdf.getPage(j);
-                      const viewport = page.getViewport({ scale: 1.0 });
-                      
-                      newPages.push({
-                          id: `${file.name}-p${j}-${Math.random()}`,
-                          pageNumber: startPageNum + newPages.length + 1,
-                          width: viewport.width,
-                          height: viewport.height,
-                          pdfPage: page
-                      });
-                  }
-              } else if (file.type.includes('image')) {
-                  const src = await new Promise<string>((resolve) => {
-                      const reader = new FileReader();
-                      reader.onload = (e) => resolve(e.target?.result as string);
-                      reader.readAsDataURL(file);
-                  });
-                  
-                  const dims = await new Promise<{w: number, h: number}>((resolve) => {
-                     const img = new Image();
-                     img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
-                     img.src = src;
-                  });
+              // Disable AutoFit on manual zoom interaction
+              setAutoFit(false);
 
-                  newPages.push({
-                      id: `${file.name}-${Math.random()}`,
-                      pageNumber: startPageNum + newPages.length + 1,
-                      width: dims.w,
-                      height: dims.h,
-                      imageSrc: src
-                  });
-              } else {
-                  console.warn(`Unsupported file type: ${file.type}`);
-                  // alert(`File type not supported: ${file.name}\nPlease upload Images or PDF.`);
-              }
+              // Use multiplicative zoom for smoother experience
+              const zoomFactor = 0.1;
+              setScale(prev => {
+                  // e.deltaY > 0 means scrolling down (zoom out typically)
+                  const newScale = e.deltaY > 0 
+                      ? prev * (1 - zoomFactor) 
+                      : prev * (1 + zoomFactor);
+                  
+                  // Allow scale down to 5% to fit large docs on small screens
+                  return Math.min(5, Math.max(0.05, newScale)); 
+              });
           }
-          
-          if (shouldResetAnnotations) {
-              setPages(newPages);
-              if (newPages.length > 0) {
-                  const fitScale = calculateBestFit(newPages[0].width, newPages[0].height);
-                  setScale(fitScale);
-              }
-          } else {
-              setPages(prev => [...prev, ...newPages]);
-          }
-          
-          events?.onDocumentReady?.();
-          
-      } catch (error) {
-          console.error("Error loading files", error);
-          alert("Failed to load files.");
-      } finally {
-          setIsLoadingFile(false);
+      };
+
+      // Attaching with { passive: false } is crucial for preventing default browser zoom
+      workspace.addEventListener('wheel', handleWheel, { passive: false });
+      
+      return () => {
+          workspace.removeEventListener('wheel', handleWheel);
+      };
+  }, []);
+
+  // --- Mobile Pinch-to-Zoom Implementation ---
+  const handleTouchStart = (e: React.TouchEvent) => {
+      if (e.touches.length === 2) {
+          const dist = Math.hypot(
+              e.touches[0].clientX - e.touches[1].clientX,
+              e.touches[0].clientY - e.touches[1].clientY
+          );
+          touchStartRef.current = { dist, scale };
+          setAutoFit(false); // Disable auto-fit on manual gesture
       }
-  }, [events, pages, setScale]); // Added dependencies
+  };
 
-  const loadDocumentsFromUrls = useCallback(async (urls: string | string[], shouldResetAnnotations = true) => {
-        setIsLoadingFile(true);
-        try {
-            const urlArray = Array.isArray(urls) ? urls : [urls];
-            const filePromises = urlArray.map(async (url) => {
-                const response = await fetch(url);
-                const blob = await response.blob();
-                const fileType = url.toLowerCase().endsWith('.pdf') || blob.type === 'application/pdf' ? 'application/pdf' : 'image/jpeg';
-                // Try to infer name
-                const name = url.substring(url.lastIndexOf('/') + 1).split('?')[0] || 'document';
-                return new File([blob], name, { type: fileType });
-            });
-            
-            const files = await Promise.all(filePromises);
-            await processFiles(files, shouldResetAnnotations);
-        } catch (err) {
-            console.error("Failed to auto-load document:", err);
-            setIsLoadingFile(false);
+  const handleTouchMove = (e: React.TouchEvent) => {
+      if (e.touches.length === 2 && touchStartRef.current) {
+          e.preventDefault(); // Prevent default browser zoom/scroll
+          const dist = Math.hypot(
+              e.touches[0].clientX - e.touches[1].clientX,
+              e.touches[0].clientY - e.touches[1].clientY
+          );
+          
+          const startDist = touchStartRef.current.dist;
+          const startScale = touchStartRef.current.scale;
+          
+          // Calculate new scale relative to start
+          const newScale = startScale * (dist / startDist);
+          setScale(Math.min(5, Math.max(0.05, newScale)));
+      }
+  };
+
+  const handleTouchEnd = () => {
+      touchStartRef.current = null;
+  };
+
+  // Autofit Logic
+  const calculateBestFit = useCallback((contentWidth: number, contentHeight: number) => {
+    if (!workspaceRef.current || contentWidth === 0 || contentHeight === 0) return 1;
+    const { clientWidth, clientHeight } = workspaceRef.current;
+    
+    // Reduced padding (20px) to maximize visibility on mobile
+    const padding = 20; 
+    const availableWidth = Math.max(10, clientWidth - padding);
+    const availableHeight = Math.max(10, clientHeight - padding);
+    
+    // Allow zooming out significantly, but capped at 1 for max default zoom
+    return Math.min(1, Math.min(availableWidth / contentWidth, availableHeight / contentHeight));
+  }, []);
+
+  useEffect(() => {
+    const workspace = workspaceRef.current;
+    if (!workspace || !currentPage) return;
+    const resizeObserver = new ResizeObserver(() => {
+        if (autoFit && currentPage) {
+            setScale(calculateBestFit(currentPage.width, currentPage.height));
         }
-  }, [processFiles]);
+    });
+    resizeObserver.observe(workspace);
+    return () => resizeObserver.disconnect();
+  }, [autoFit, currentPage, calculateBestFit]);
+
+
+  // --- Multi-Document Loading Logic ---
+  // (Same as before)
+  const loadDocumentsFromUrls = useCallback(async (urls: string | string[], providedIds?: string[], shouldReset = true) => {
+        setIsLoadingFile(true);
+        if (shouldReset) {
+            setAnnotations([]);
+            events?.onClearAnnotations?.();
+            setPages([]);
+            setDocuments([]);
+            pagesRef.current = [];
+            setAutoFit(true);
+        }
+
+        const urlArray = Array.isArray(urls) ? urls : [urls];
+        const docIds = providedIds || urlArray.map((_, i) => (shouldReset ? i : pagesRef.current.length + i).toString());
+
+        const newDocuments: DocumentMeta[] = [];
+        const newPages: PageData[] = [];
+
+        for (let i = 0; i < urlArray.length; i++) {
+            const url = urlArray[i];
+            const docId = docIds[i] || `${Date.now()}-${i}`;
+            const lowUrl = url.toLowerCase();
+            let fileName = `Document ${docId}`;
+            try { fileName = decodeURIComponent(url.split('/').pop() || `Document ${docId}`); } catch(e){}
+
+            // Identify Type
+            const isPdf = lowUrl.endsWith('.pdf');
+            const isDocx = lowUrl.endsWith('.docx');
+            const isModel = lowUrl.endsWith('.glb') || lowUrl.endsWith('.gltf');
+            const isHtml = lowUrl.endsWith('.html') || lowUrl.endsWith('.htm');
+            const isTxt = lowUrl.endsWith('.txt');
+
+            let pageCount = 0;
+
+            try {
+                // 1. PDF
+                if (isPdf) {
+                    const res = await fetch(url);
+                    const blob = await res.blob();
+                    const ab = await blob.arrayBuffer();
+                    const loadingTask = pdfjsLib.getDocument({ data: ab });
+                    const pdf = await loadingTask.promise;
+                    pageCount = pdf.numPages;
+                    
+                    for(let j=1; j<=pdf.numPages; j++){
+                        const p = await pdf.getPage(j);
+                        const vp = p.getViewport({scale:1});
+                        newPages.push({
+                            id: `${docId}-p${j}`,
+                            documentId: docId,
+                            pageNumber: j,
+                            width: vp.width,
+                            height: vp.height,
+                            pdfPage: p
+                        });
+                    }
+                } 
+                // 2. DOCX
+                else if (isDocx) {
+                    const res = await fetch(url);
+                    const blob = await res.blob();
+                    pageCount = 1;
+                    newPages.push({
+                        id: `${docId}-p1`, documentId: docId, pageNumber: 1,
+                        width: 816, height: 1056, docxData: blob
+                    });
+                }
+                // 3. 3D Model
+                else if (isModel) {
+                    pageCount = 1;
+                    newPages.push({
+                        id: `${docId}-p1`, documentId: docId, pageNumber: 1,
+                        width: 800, height: 600, modelSrc: url
+                    });
+                }
+                // 4. HTML/Text
+                else if (isHtml || isTxt) {
+                    const res = await fetch(url);
+                    const text = await res.text();
+                    pageCount = 1;
+                    newPages.push({
+                         id: `${docId}-p1`, documentId: docId, pageNumber: 1,
+                         width: 800, height: 1000, 
+                         textContent: isHtml ? text : `<pre>${text}</pre>`
+                    });
+                }
+                // 5. Image (Fallback)
+                else {
+                    const dims = await new Promise<{w:number,h:number}>(r => {
+                        const img = new Image(); img.crossOrigin="Anonymous";
+                        img.onload=()=>r({w:img.naturalWidth, h:img.naturalHeight});
+                        img.onerror=()=>r({w:800, h:600});
+                        img.src = url;
+                    });
+                    pageCount = 1;
+                    newPages.push({
+                        id: `${docId}-p1`, documentId: docId, pageNumber: 1,
+                        width: dims.w, height: dims.h, imageSrc: url
+                    });
+                }
+
+                newDocuments.push({
+                    id: docId,
+                    name: fileName,
+                    type: isPdf?'pdf':(isDocx?'docx':(isModel?'model':'image')),
+                    pageCount
+                });
+
+            } catch (e) {
+                console.error(`Failed load: ${url}`, e);
+            }
+        }
+
+        setDocuments(prev => shouldReset ? newDocuments : [...prev, ...newDocuments]);
+        setPages(prev => shouldReset ? newPages : [...prev, ...newPages]);
+        
+        // Auto-select first loaded doc
+        if (newDocuments.length > 0 && (shouldReset || !currentDocumentId)) {
+            setCurrentDocumentId(newDocuments[0].id);
+        }
+        setIsLoadingFile(false);
+  }, [events]);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      // (Same as before)
+      const files = e.target.files;
+      if (!files || files.length === 0) return;
+      setIsLoadingFile(true);
+
+      const newDocs: DocumentMeta[] = [];
+      const newPages: PageData[] = [];
+
+      for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          const docId = `upload-${Date.now()}-${i}`;
+          
+          let dataUrl = '';
+          const isPdf = file.type === 'application/pdf';
+          const isDocx = file.type.includes('wordprocessingml') || file.name.endsWith('.docx');
+          const isPptx = file.name.endsWith('.pptx') || file.type.includes('presentationml');
+
+          if (!isPdf && !isDocx && !isPptx) {
+              dataUrl = await new Promise<string>((resolve) => {
+                  const reader = new FileReader();
+                  reader.onload = (ev) => resolve(ev.target?.result as string);
+                  reader.readAsDataURL(file);
+              });
+          }
+
+          let pageCount = 1;
+
+          try {
+            if (isPdf) {
+                const arrayBuffer = await file.arrayBuffer();
+                const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+                const pdf = await loadingTask.promise;
+                pageCount = pdf.numPages;
+
+                for (let j = 1; j <= pdf.numPages; j++) {
+                    const p = await pdf.getPage(j);
+                    const vp = p.getViewport({ scale: 1 });
+                    newPages.push({
+                        id: `${docId}-p${j}`,
+                        documentId: docId,
+                        pageNumber: j,
+                        width: vp.width,
+                        height: vp.height,
+                        pdfPage: p
+                    });
+                }
+            } else if (isDocx) {
+                newPages.push({
+                    id: `${docId}-p1`, documentId: docId, pageNumber: 1,
+                    width: 816, height: 1056, docxData: file
+                });
+            } else if (isPptx) {
+                try {
+                    const slidesHtml = await parsePptx(file);
+                    pageCount = slidesHtml.length;
+                    slidesHtml.forEach((html, idx) => {
+                        newPages.push({
+                            id: `${docId}-p${idx + 1}`, 
+                            documentId: docId, 
+                            pageNumber: idx + 1,
+                            width: 960, 
+                            height: 540, 
+                            textContent: html
+                        });
+                    });
+                } catch (e) {
+                    console.error("PPTX Error", e);
+                }
+            } else {
+                const dims = await new Promise<{ w: number, h: number }>(r => {
+                    const img = new Image();
+                    img.onload = () => r({ w: img.naturalWidth, h: img.naturalHeight });
+                    img.src = dataUrl;
+                });
+                newPages.push({
+                    id: `${docId}-p1`, documentId: docId, pageNumber: 1,
+                    width: dims.w, height: dims.h, imageSrc: dataUrl
+                });
+            }
+
+            newDocs.push({
+                id: docId,
+                name: file.name,
+                type: isPdf ? 'pdf' : (isDocx ? 'docx' : (isPptx ? 'pptx' : 'image')),
+                pageCount
+            });
+          } catch(err) {
+              console.error("Error loading file", file.name, err);
+          }
+      }
+
+      setDocuments(prev => [...prev, ...newDocs]);
+      setPages(prev => [...prev, ...newPages]);
+      if (newDocs.length > 0) setCurrentDocumentId(newDocs[0].id);
+      setIsLoadingFile(false);
+      e.target.value = ''; 
+  };
 
   const handleCameraCapture = async (imageDataUrl: string) => {
-      // Create a simplified file-like object processing
+      // (Same as before)
       setIsLoadingFile(true);
       try {
         const dims = await new Promise<{w: number, h: number}>((resolve) => {
@@ -526,23 +969,13 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
             img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
             img.src = imageDataUrl;
         });
-
-        const newPage: PageData = {
-            id: `camera-capture-${Date.now()}`,
-            pageNumber: pages.length + 1,
-            width: dims.w,
-            height: dims.h,
-            imageSrc: imageDataUrl
-        };
-
+        const photoId = `camera-${Date.now()}`;
+        const newDoc: DocumentMeta = { id: photoId, name: `Photo ${new Date().toLocaleTimeString()}`, type: 'image', pageCount: 1 };
+        const newPage: PageData = { id: `${photoId}-p1`, documentId: photoId, pageNumber: 1, width: dims.w, height: dims.h, imageSrc: imageDataUrl };
+        setDocuments(prev => [...prev, newDoc]);
         setPages(prev => [...prev, newPage]);
-        
-        // Trigger Event Callback
-        events?.onPhotoAdd?.(imageDataUrl);
-
-        // Scroll to the new page
-        setTimeout(() => scrollToPage(pages.length), 100);
-
+        setCurrentDocumentId(photoId); 
+        events?.onPhotoAdd?.({ dataUrl: imageDataUrl, id: photoId });
       } catch (e) {
           console.error("Failed to process camera image", e);
       } finally {
@@ -550,329 +983,41 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
       }
   };
 
-  // Expose Imperative API
-  useImperativeHandle(ref, () => ({
-      loadDocument: async (source: string | File | (string | File)[]) => {
-          if (Array.isArray(source)) {
-              // Handle mixed array of strings and Files
-              const files: File[] = [];
-              const urls: string[] = [];
-              source.forEach(item => {
-                  if (typeof item === 'string') urls.push(item);
-                  else files.push(item);
-              });
+  // Handle Input Props Change
+  useEffect(() => {
+    if (documentSrc) {
+        loadDocumentsFromUrls(documentSrc, documentIds, true);
+    }
+  }, [documentSrc, documentIds, loadDocumentsFromUrls]); 
 
-              if (urls.length > 0) {
-                 // Fetch URLs first
-                 const fetchedFilesPromises = urls.map(async (url) => {
-                     const response = await fetch(url);
-                     const blob = await response.blob();
-                     const fileType = url.toLowerCase().endsWith('.pdf') || blob.type === 'application/pdf' ? 'application/pdf' : 'image/jpeg';
-                     const name = url.substring(url.lastIndexOf('/') + 1).split('?')[0] || 'document';
-                     return new File([blob], name, { type: fileType });
-                 });
-                 const fetchedFiles = await Promise.all(fetchedFilesPromises);
-                 files.push(...fetchedFiles);
-              }
-              
-              if (files.length > 0) {
-                  await processFiles(files);
-              }
+  // Handle Document Switching
+  const handleDocChange = (id: string) => {
+      setCurrentDocumentId(id);
+      setActivePageIndex(0);
+      events?.onDocumentChange?.(id);
+      setTimeout(() => setAutoFit(true), 50);
+  };
+
+  useImperativeHandle(ref, () => ({
+      loadDocument: async (source, ids) => {
+          if (Array.isArray(source)) {
+               const urls: string[] = source.map(s => typeof s === 'string' ? s : URL.createObjectURL(s));
+               await loadDocumentsFromUrls(urls, ids, true);
           } else if (typeof source === 'string') {
-              await loadDocumentsFromUrls(source);
+              await loadDocumentsFromUrls([source], ids ? [ids[0]] : undefined, true);
           } else {
-              await processFiles([source]);
+              const url = URL.createObjectURL(source);
+              await loadDocumentsFromUrls([url], ids ? [ids[0]] : [source.name], true);
           }
       },
       getAnnotations: () => annotations,
-      setAnnotations: (anns: Annotation[]) => setAnnotations(anns),
+      setAnnotations: (anns) => setAnnotations(anns),
       clearAnnotations: () => {
           setAnnotations([]);
           setSelectedAnnotationId(null);
           events?.onClearAnnotations?.();
       }
   }));
-
-  // Handle Initial Annotations Event
-  useEffect(() => {
-    if (initialAnnotations.length > 0 && events?.onAnnotationsReady) {
-        events.onAnnotationsReady();
-    }
-  }, []); 
-
-  const calculateBestFit = useCallback((contentWidth: number, contentHeight: number) => {
-    if (!workspaceRef.current || contentWidth === 0 || contentHeight === 0) return 1;
-    const { clientWidth, clientHeight } = workspaceRef.current;
-    const padding = 64; 
-    const availableWidth = Math.max(100, clientWidth - padding);
-    const availableHeight = Math.max(100, clientHeight - padding);
-    const scaleX = availableWidth / contentWidth;
-    const scaleY = availableHeight / contentHeight;
-    return Math.min(1, Math.min(scaleX, scaleY));
-  }, []);
-
-  // Update Scale on window resize if AutoFit
-  useEffect(() => {
-    const workspace = workspaceRef.current;
-    if (!workspace || pages.length === 0) return;
-
-    const resizeObserver = new ResizeObserver(() => {
-        if (autoFit && pages[activePageIndex]) {
-            const p = pages[activePageIndex];
-            const newScale = calculateBestFit(p.width, p.height);
-            setScale(newScale);
-        }
-    });
-    resizeObserver.observe(workspace);
-    return () => resizeObserver.disconnect();
-  }, [autoFit, pages, activePageIndex, calculateBestFit]);
-
-  // Auto load documentSrc
-  useEffect(() => {
-    if (documentSrc) {
-        // IMPORTANT: Do NOT reset annotations if we are loading the initial document 
-        // and initial annotations were provided.
-        // We assume that if initialAnnotations exist, they belong to this documentSrc.
-        const shouldReset = initialAnnotations.length === 0;
-        loadDocumentsFromUrls(documentSrc, shouldReset);
-    }
-  }, [documentSrc, loadDocumentsFromUrls]); // removed initialAnnotations from dep array to avoid loops
-
-  // Handle Scroll to determine active page
-  const handleScroll = () => {
-    if (!workspaceRef.current) return;
-    const { scrollTop, clientHeight } = workspaceRef.current;
-    const scrollMiddle = scrollTop + (clientHeight / 2);
-    // Intersection observer handles active page, scroll updates are visual
-  };
-
-  // Intersection Observer for Active Page
-  useEffect(() => {
-    const observer = new IntersectionObserver((entries) => {
-        entries.forEach(entry => {
-            if (entry.isIntersecting && entry.intersectionRatio > 0.5) {
-                 const id = entry.target.id;
-                 const index = parseInt(id.replace('page-', '')) - 1;
-                 if (!isNaN(index)) setActivePageIndex(index);
-            }
-        });
-    }, { threshold: [0.5] });
-
-    pages.forEach(p => {
-        const el = document.getElementById(`page-${p.pageNumber}`);
-        if (el) observer.observe(el);
-    });
-
-    return () => observer.disconnect();
-  }, [pages]);
-
-
-  useEffect(() => {
-    const workspace = workspaceRef.current;
-    if (!workspace) return;
-    const handleWheel = (e: WheelEvent) => {
-      if (e.ctrlKey) {
-        e.preventDefault();
-        const delta = -Math.sign(e.deltaY) * 0.1;
-        setAutoFit(false); 
-        setScale(prev => {
-          const next = Math.max(0.1, Math.min(5, prev + delta));
-          return Number(next.toFixed(1));
-        });
-      }
-    };
-    workspace.addEventListener('wheel', handleWheel, { passive: false });
-    return () => workspace.removeEventListener('wheel', handleWheel);
-  }, []);
-
-  // Fullscreen Logic
-  const toggleFullscreen = useCallback(() => {
-    if (!document.fullscreenElement) {
-        containerRef.current?.requestFullscreen().catch(err => {
-            console.error("Error enabling fullscreen:", err);
-        });
-    } else {
-        document.exitFullscreen();
-    }
-  }, []);
-
-  useEffect(() => {
-    const handleFsChange = () => setIsFullscreen(!!document.fullscreenElement);
-    document.addEventListener('fullscreenchange', handleFsChange);
-    return () => document.removeEventListener('fullscreenchange', handleFsChange);
-  }, []);
-
-  // Keyboard shortcut for deleting annotations
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-        if ((e.key === 'Delete' || e.key === 'Backspace') && selectedAnnotationId && !showCommentModal && !isViewOnly) {
-            // Check if we are focusing on an input, if so, don't delete annotation
-            const activeTag = document.activeElement?.tagName.toLowerCase();
-            if (activeTag === 'input' || activeTag === 'textarea') return;
-            
-            deleteAnnotation(selectedAnnotationId);
-        }
-    };
-    
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedAnnotationId, showCommentModal, isViewOnly]);
-
-  // Update selection properties
-  useEffect(() => {
-    if (selectedAnnotationId) {
-      const ann = annotations.find(a => a.id === selectedAnnotationId);
-      if (ann) {
-        if (ann.severity) setSeverity(ann.severity);
-        if (ann.reasonCode) setReasonCode(ann.reasonCode);
-      }
-    }
-  }, [selectedAnnotationId, annotations]);
-
-  const updateSelectedSeverity = (newSeverity: number) => {
-    if (isViewOnly) return;
-    setSeverity(newSeverity);
-    if (selectedAnnotationId) {
-      let updatedAnn: Annotation | undefined;
-      setAnnotations(prev => {
-          const updated = prev.map(a => {
-            if (a.id === selectedAnnotationId) {
-                const updatedItem = { ...a, severity: newSeverity, color: severityOptions[newSeverity] || severityOptions[4] };
-                updatedAnn = updatedItem;
-                return updatedItem;
-            }
-            return a;
-          });
-          return updated;
-      });
-      if (updatedAnn) requestAnimationFrame(() => events?.onAnnotationUpdate?.(updatedAnn!));
-    }
-  };
-
-  const updateSelectedReasonCode = (newCode: string) => {
-    if (isViewOnly) return;
-    setReasonCode(newCode);
-    if (selectedAnnotationId) {
-      let updatedAnn: Annotation | undefined;
-      setAnnotations(prev => {
-          const updated = prev.map(a => {
-            if (a.id === selectedAnnotationId) {
-                const updatedItem = { ...a, reasonCode: newCode };
-                updatedAnn = updatedItem;
-                return updatedItem;
-            }
-            return a;
-          });
-          return updated;
-      });
-      if (updatedAnn) requestAnimationFrame(() => events?.onAnnotationUpdate?.(updatedAnn!));
-    }
-  };
-
-  const selectedAnnotation = annotations.find(a => a.id === selectedAnnotationId);
-
-  // File Loading Logic (Wrapper for Input Change)
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-        processFiles(e.target.files);
-    }
-  };
-
-  const scrollToPage = (pageIndex: number) => {
-      const pageEl = document.getElementById(`page-${pageIndex + 1}`);
-      if (pageEl) {
-          pageEl.scrollIntoView({ behavior: 'smooth' });
-          setActivePageIndex(pageIndex);
-      }
-  };
-
-  const handleSave = () => {
-    const data = {
-      file: fileName,
-      annotations,
-      timestamp: new Date().toISOString()
-    };
-
-    if (events?.onSave) {
-        // Delegate save logic to the external handler
-        events.onSave(data);
-    } else {
-        // Default behavior: Download JSON
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `${fileName}-annotations.json`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-    }
-  };
-
-  const handleLoad = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const data = JSON.parse(event.target?.result as string);
-        if (data.annotations && Array.isArray(data.annotations)) {
-          setAnnotations(data.annotations);
-          events?.onAnnotationsReady?.();
-        } else {
-            alert("Invalid JSON format");
-        }
-      } catch (err) {
-        console.error(err);
-        alert("Failed to parse JSON");
-      }
-    };
-    reader.readAsText(file);
-  };
-
-  const handleAnalyze = async () => {
-    const activePage = pages[activePageIndex];
-    if (!activePage) return;
-
-    setIsAnalyzing(true);
-    try {
-        // Prepare image data for analysis
-        let imageToAnalyze = activePage.imageSrc;
-        
-        // If it's a PDF page or we don't have source, we need to extract from rendered canvas or stored proxy
-        if (!imageToAnalyze && activePage.pdfPage) {
-            // Render specific page to base64 for Gemini
-            const viewport = activePage.pdfPage.getViewport({ scale: 1.5 });
-            const canvas = document.createElement('canvas');
-            canvas.width = viewport.width;
-            canvas.height = viewport.height;
-            const ctx = canvas.getContext('2d');
-            if (ctx) {
-                await activePage.pdfPage.render({ canvasContext: ctx, viewport } as any).promise;
-                imageToAnalyze = canvas.toDataURL('image/jpeg');
-            }
-        }
-
-        if (imageToAnalyze) {
-            const newAnnotations = await analyzeImageForAnnotations(imageToAnalyze, activePage.width, activePage.height);
-            const pageAnnotations = newAnnotations.map(a => ({
-                ...a,
-                page: activePage.pageNumber,
-                severity: severity,
-                reasonCode: reasonCode,
-                color: severityOptions[severity] || severityOptions[4],
-                status: 'New'
-            }));
-            
-            pageAnnotations.forEach(ann => events?.onAnnotationAdd?.(ann));
-            setAnnotations(prev => [...prev, ...pageAnnotations]);
-        }
-    } catch (error) {
-        alert("Gemini Analysis Failed. Check console or API Key.");
-    } finally {
-        setIsAnalyzing(false);
-    }
-  };
 
   const deleteAnnotation = (id: string) => {
       if (isViewOnly) return;
@@ -883,7 +1028,8 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
 
   const handleCancelModal = () => {
     if (newAnnotationId && selectedAnnotationId === newAnnotationId) {
-        deleteAnnotation(newAnnotationId);
+        setAnnotations(prev => prev.filter(a => a.id !== newAnnotationId));
+        setSelectedAnnotationId(null);
     }
     setNewAnnotationId(null);
     setShowCommentModal(false);
@@ -892,14 +1038,12 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
   const handleSaveModal = (data: any) => {
       if (selectedAnnotationId) {
           let updatedAnnotation: Annotation | undefined;
+          let isNew = false;
           setAnnotations(prev => {
               const updated = prev.map(a => {
                   if (a.id === selectedAnnotationId) {
-                      updatedAnnotation = { 
-                          ...a, 
-                          ...data,
-                          color: severityOptions[data.severity] || severityOptions[4]
-                      };
+                      if (selectedAnnotationId === newAnnotationId) isNew = true;
+                      updatedAnnotation = { ...a, ...data, color: severityOptions[data.severity] || severityOptions[4] };
                       return updatedAnnotation!;
                   }
                   return a;
@@ -908,27 +1052,50 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
           });
           setSeverity(data.severity);
           setReasonCode(data.reasonCode);
-          if (updatedAnnotation) requestAnimationFrame(() => events?.onAnnotationUpdate?.(updatedAnnotation!));
+          if (updatedAnnotation) {
+             const finalAnn = updatedAnnotation; 
+             requestAnimationFrame(() => {
+                 isNew ? events?.onAnnotationAdd?.(finalAnn) : events?.onAnnotationUpdate?.(finalAnn);
+             });
+          }
       }
       setNewAnnotationId(null); 
       setShowCommentModal(false);
+  };
+
+  // Nav Rendering
+  const NavDots = () => {
+      if (documents.length <= 1) return null;
+      return (
+          <div className="flex gap-2 bg-gray-900/80 p-2 rounded-full backdrop-blur border border-gray-700 mx-auto w-fit z-20 shadow-lg max-w-[80vw] overflow-x-auto no-scrollbar pointer-events-auto">
+              {documents.map(doc => (
+                  <button
+                    key={doc.id}
+                    onClick={() => handleDocChange(doc.id)}
+                    className={`px-3 py-1 rounded-full text-xs font-medium transition-all shrink-0 ${
+                        currentDocumentId === doc.id 
+                        ? 'bg-blue-600 text-white shadow' 
+                        : 'text-gray-400 hover:text-white hover:bg-gray-700'
+                    }`}
+                    title={doc.name}
+                  >
+                      {doc.name.length > 20 ? doc.name.substring(0,18)+'...' : doc.name}
+                  </button>
+              ))}
+          </div>
+      );
   };
 
   const handleWorkspaceMouseDown = (e: React.MouseEvent) => {
       if (tool === 'hand' && workspaceRef.current) {
           setIsPanning(true);
           setPanStart({ x: e.clientX, y: e.clientY });
-          setScrollStart({ 
-              left: workspaceRef.current.scrollLeft, 
-              top: workspaceRef.current.scrollTop 
-          });
+          setScrollStart({ left: workspaceRef.current.scrollLeft, top: workspaceRef.current.scrollTop });
           e.preventDefault(); 
       } else {
-         // Deselect if clicking background
          if (e.target === e.currentTarget) setSelectedAnnotationId(null);
       }
   };
-
   const handleWorkspaceMouseMove = (e: React.MouseEvent) => {
       if (isPanning && workspaceRef.current) {
           const dx = e.clientX - panStart.x;
@@ -938,163 +1105,109 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
       }
   };
 
-  const handleWorkspaceMouseUp = () => {
-      setIsPanning(false);
-  };
-  
-  const handleClear = () => {
-      setAnnotations([]);
-      setSelectedAnnotationId(null);
-      events?.onClearAnnotations?.();
-  };
-  
-  const handleFitToScreen = () => {
-      setAutoFit(true);
-      if (pages[activePageIndex]) {
-          const p = pages[activePageIndex];
-          const newScale = calculateBestFit(p.width, p.height);
-          setScale(newScale);
-      }
+  const handleAnalyze = async () => {
+    if(!currentDocumentId) return;
+    const page = visiblePages[activePageIndex];
+    if (!page) return;
+    setIsAnalyzing(true);
+    try {
+        let imageToAnalyze = page.imageSrc;
+        if (!imageToAnalyze && page.pdfPage) {
+            const viewport = page.pdfPage.getViewport({ scale: 1.5 });
+            const canvas = document.createElement('canvas');
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+                await page.pdfPage.render({ canvasContext: ctx, viewport } as any).promise;
+                imageToAnalyze = canvas.toDataURL('image/jpeg');
+            }
+        }
+        if (imageToAnalyze) {
+            const newAnnotations = await analyzeImageForAnnotations(currentDocumentId, imageToAnalyze, page.width, page.height);
+            const pageAnnotations = newAnnotations.map(a => ({
+                ...a, page: page.pageNumber, severity: severity, reasonCode: reasonCode, color: severityOptions[severity] || severityOptions[4], status: 'New'
+            }));
+            pageAnnotations.forEach(ann => events?.onAnnotationAdd?.(ann));
+            setAnnotations(prev => [...prev, ...pageAnnotations]);
+        }
+    } catch (error) {
+        alert("Gemini Analysis Failed. Check console or API Key.");
+    } finally {
+        setIsAnalyzing(false);
+    }
   };
 
   return (
     <div ref={containerRef} className="flex w-full h-full bg-gray-900 text-gray-100 font-sans overflow-hidden" style={styleConfig?.container}>
-      
-      {/* Sidebar Layout - Render as Drawer on Mobile */}
       {layoutMode === 'sidebar' && (
-        <>
-            {/* Backdrop for Mobile Drawer */}
-            {isMobile && mobileMenuOpen && (
-                <div 
-                    className="fixed inset-0 top-14 bg-black/60 z-40 backdrop-blur-sm"
-                    onClick={() => setMobileMenuOpen(false)}
-                ></div>
-            )}
-            
-            {/* Sidebar Content */}
-            <div 
-                className={`
-                    ${isMobile ? 'fixed left-0 bottom-0 top-14 z-50 transition-transform duration-300 shadow-2xl w-72 border-r border-gray-700 bg-gray-800' : 'relative z-10'}
-                    ${isMobile && !mobileMenuOpen ? '-translate-x-full' : 'translate-x-0'}
-                `}
-            >
-                <Toolbar 
-                    currentTool={tool}
-                    setTool={(t) => { setTool(t); if (t !== 'select') setSelectedAnnotationId(null); if(isMobile) setMobileMenuOpen(false); }}
-                    currentStrokeWidth={strokeWidth}
-                    setStrokeWidth={setStrokeWidth}
-                    currentFontSize={fontSize}
-                    setFontSize={setFontSize}
-                    onClear={handleClear}
-                    onSave={handleSave}
-                    onLoad={handleLoad}
-                    onFileChange={handleFileChange}
-                    onAnalyze={handleAnalyze}
-                    isAnalyzing={isAnalyzing}
-                    hasFile={pages.length > 0}
-                    scale={scale}
-                    setScale={(newScale) => { setAutoFit(false); setScale(newScale); }}
-                    onFitToScreen={handleFitToScreen}
-                    isFullscreen={isFullscreen}
-                    onToggleFullscreen={toggleFullscreen}
-                    selectedAnnotationId={selectedAnnotationId}
-                    onDeleteSelected={() => selectedAnnotationId && deleteAnnotation(selectedAnnotationId)}
-                    onEditSelected={() => setShowCommentModal(true)}
-                    severity={severity}
-                    setSeverity={updateSelectedSeverity}
-                    reasonCode={reasonCode}
-                    setReasonCode={updateSelectedReasonCode}
-                    hideLoadFileBtn={!!documentSrc || hideLoadFileBtn}
-                    hideSaveJsonBtn={hideSaveJsonBtn}
-                    hideLoadJsonBtn={hideLoadJsonBtn}
-                    customSeverityColors={severityOptions}
-                    customReasonCodes={reasonCodeOptions}
-                    style={styleConfig?.toolbar}
-                    variant='sidebar'
-                    mode={mode}
-                    
-                    // Camera & Thumbnails Props
-                    showThumbnails={showThumbnails}
-                    onToggleThumbnails={() => { setShowThumbnails(!showThumbnails); if(isMobile) setMobileMenuOpen(false); }}
-
-                    // Mobile Drawer Close: Switch to bottom toolbar on close
-                    onClose={() => {
-                        setMobileMenuOpen(false);
-                        if(isMobile) setLayoutMode('bottom');
-                    }}
-                    isMobile={isMobile}
-                />
-            </div>
-        </>
+        <div className={`
+             ${isMobile ? 'fixed inset-y-0 left-0 z-50 transition-transform duration-300 shadow-2xl' : 'relative z-10'}
+             ${isMobile && !mobileMenuOpen ? '-translate-x-full' : 'translate-x-0'}
+        `}>
+             <Toolbar 
+                currentTool={tool} setTool={setTool}
+                currentStrokeWidth={strokeWidth} setStrokeWidth={setStrokeWidth}
+                currentFontSize={fontSize} setFontSize={setFontSize}
+                onClear={() => { setAnnotations([]); events?.onClearAnnotations?.(); }}
+                onSave={() => events?.onSave ? events.onSave({file: currentDocumentMeta?.name||'Batch', annotations, timestamp: new Date().toISOString()}) : null}
+                onLoad={() => {}}
+                onFileChange={handleFileUpload} 
+                onAnalyze={handleAnalyze}
+                isAnalyzing={isAnalyzing}
+                hasFile={documents.length > 0}
+                scale={scale} setScale={(s) => { setScale(s); setAutoFit(false); }}
+                onFitToScreen={() => setAutoFit(true)}
+                isFullscreen={isFullscreen} onToggleFullscreen={() => {}}
+                selectedAnnotationId={selectedAnnotationId}
+                onDeleteSelected={() => selectedAnnotationId && deleteAnnotation(selectedAnnotationId)}
+                onEditSelected={() => setShowCommentModal(true)}
+                severity={severity} setSeverity={setSeverity}
+                reasonCode={reasonCode} setReasonCode={setReasonCode}
+                hideLoadFileBtn={hideLoadFileBtn}
+                hideSaveJsonBtn={hideSaveJsonBtn}
+                hideLoadJsonBtn={hideLoadJsonBtn}
+                customSeverityColors={severityOptions}
+                customReasonCodes={reasonCodeOptions}
+                style={styleConfig?.toolbar}
+                variant='sidebar'
+                mode={mode}
+                showThumbnails={showThumbnails}
+                onToggleThumbnails={() => setShowThumbnails(!showThumbnails)}
+                onClose={() => {
+                    setMobileMenuOpen(false);
+                    if (isMobile) setLayoutMode('bottom');
+                }}
+                isMobile={isMobile}
+             />
+        </div>
       )}
 
-      {/* Thumbnail Panel - Left side (between toolbar and workspace) */}
-      {showThumbnails && pages.length > 0 && (
+      {showThumbnails && documents.length > 0 && (
           <ThumbnailPanel 
-            pages={pages}
+            pages={visiblePages}
             activePageIndex={activePageIndex}
-            onPageSelect={(idx) => scrollToPage(idx)}
+            onPageSelect={(idx) => {
+                setActivePageIndex(idx);
+            }}
           />
       )}
 
       <div className="flex-1 flex flex-col relative overflow-hidden" style={styleConfig?.layout}>
         
-        {/* Top Header */}
+        {/* Header */}
         <div className="h-14 bg-gray-800 border-b border-gray-700 flex items-center justify-between px-4 shadow-md z-10 shrink-0">
-            <div className="flex items-center gap-2">
-               {/* Mobile Menu Button - Always show on mobile to allow switching to Sidebar/Options */}
-               {isMobile && (
-                   <button 
-                        onClick={() => {
-                            if (layoutMode === 'bottom') {
-                                setLayoutMode('sidebar');
-                                // slight delay to ensure render before sliding in
-                                setTimeout(() => setMobileMenuOpen(true), 10);
-                            } else {
-                                setMobileMenuOpen(!mobileMenuOpen);
-                            }
-                        }}
-                        className="p-2 -ml-2 rounded-lg text-gray-300 hover:bg-gray-700"
-                    >
-                        <Menu className="w-6 h-6" />
-                   </button>
-               )}
-
-               <span className="font-bold text-lg text-blue-400">SmartDoc</span>
-               {!isMobile && (
-                   <>
-                    <span className="text-gray-500 text-sm">|</span>
-                    <span className="text-gray-300 text-sm font-medium truncate max-w-xs">{fileName}</span>
-                   </>
-               )}
-            </div>
-            
-            {pages.length > 0 && !isMobile && (
-                <div className="flex items-center gap-2 bg-gray-900 rounded-lg p-1 border border-gray-700">
-                    <button 
-                        onClick={() => scrollToPage(activePageIndex - 1)}
-                        disabled={activePageIndex === 0}
-                        className="p-1 hover:bg-gray-700 rounded text-gray-300 disabled:opacity-30 disabled:cursor-not-allowed"
-                    >
-                        <ChevronLeft className="w-5 h-5" />
-                    </button>
-                    <span className="text-sm font-mono w-24 text-center text-gray-200">
-                         {activePageIndex + 1} / {pages.length}
-                    </span>
-                    <button 
-                        onClick={() => scrollToPage(activePageIndex + 1)}
-                        disabled={activePageIndex >= pages.length - 1}
-                        className="p-1 hover:bg-gray-700 rounded text-gray-300 disabled:opacity-30 disabled:cursor-not-allowed"
-                    >
-                        <ChevronRight className="w-5 h-5" />
-                    </button>
-                </div>
-            )}
-
-            <div className="flex items-center gap-2 md:gap-3">
-               
-               {/* Camera Button in Header - Hidden if disabled via config or mode */}
-               {!hideCameraBtn && !isViewOnly && (
+             <div className="flex items-center gap-2">
+                 {isMobile && <button onClick={() => { setLayoutMode('sidebar'); setMobileMenuOpen(true); }} className="p-2"><Menu className="w-5 h-5"/></button>}
+                 <span className="font-bold text-lg text-blue-400">SmartDoc</span>
+                 <span className="text-gray-500">|</span>
+                 <span className="text-gray-300 text-sm font-medium truncate max-w-[150px]">
+                     {currentDocumentMeta?.name || 'No Doc'}
+                 </span>
+             </div>
+             
+             <div className="flex items-center gap-2">
+                  {!hideCameraBtn && !isViewOnly && (
                    <button 
                      onClick={() => setShowCamera(true)}
                      className="p-2 rounded-md hover:bg-gray-700 transition-colors text-gray-400"
@@ -1102,40 +1215,16 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
                    >
                        <Camera className="w-5 h-5" />
                    </button>
-               )}
-
-               <div className="w-px h-6 bg-gray-700 mx-1 hidden md:block"></div>
-
-               {/* Toggle Layout Button - Available on Mobile now */}
-               <button 
-                onClick={() => {
-                    const newMode = layoutMode === 'sidebar' ? 'bottom' : 'sidebar';
-                    setLayoutMode(newMode);
-                    // If switching to sidebar on mobile, open the drawer
-                    if (newMode === 'sidebar' && isMobile) {
-                        setTimeout(() => setMobileMenuOpen(true), 10);
-                    }
-                }}
-                className="p-2 rounded-md hover:bg-gray-700 transition-colors text-gray-400"
-                title="Toggle Layout"
-               >
-                   <LayoutTemplate className="w-5 h-5" />
-               </button>
-
-               <button 
-                onClick={() => setShowRightPanel(!showRightPanel)}
-                className={`p-2 rounded-md hover:bg-gray-700 transition-colors ${showRightPanel ? 'bg-gray-700 text-blue-400' : 'text-gray-400'}`}
-                title="Toggle Annotation List"
-               >
-                   {showRightPanel ? <PanelRightClose className="w-5 h-5" /> : <PanelRightOpen className="w-5 h-5" />}
-               </button>
-            </div>
+                  )}
+                  <button onClick={() => setLayoutMode(m => m==='sidebar'?'bottom':'sidebar')}><LayoutTemplate className="w-5 h-5 text-gray-400"/></button>
+                  <button onClick={() => setShowRightPanel(!showRightPanel)}><PanelRightOpen className="w-5 h-5 text-gray-400"/></button>
+             </div>
         </div>
 
-        {/* Workspace - Continuous Scroll */}
+        {/* Workspace */}
         <div 
              ref={workspaceRef}
-             className={`flex-1 relative bg-gray-900/50 overflow-auto flex flex-col items-center p-4 md:p-8 gap-4 md:gap-8 min-h-0 ${tool === 'hand' ? 'cursor-grab active:cursor-grabbing' : ''}`}
+             className={`flex-1 relative bg-gray-900/50 overflow-auto flex flex-col p-4 gap-8 min-h-0 ${tool === 'hand' ? 'cursor-grab active:cursor-grabbing' : ''}`}
              style={{ 
                  backgroundImage: 'radial-gradient(#374151 1px, transparent 1px)', 
                  backgroundSize: '20px 20px',
@@ -1143,37 +1232,43 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
              }}
              onMouseDown={handleWorkspaceMouseDown}
              onMouseMove={handleWorkspaceMouseMove}
-             onMouseUp={handleWorkspaceMouseUp}
-             onMouseLeave={handleWorkspaceMouseUp}
-             onScroll={handleScroll}
+             onMouseUp={() => setIsPanning(false)}
+             onTouchStart={handleTouchStart}
+             onTouchMove={handleTouchMove}
+             onTouchEnd={handleTouchEnd}
         >
-            {pages.length === 0 && !isLoadingFile ? (
-                <div className="text-center text-gray-500 my-auto mx-auto p-4">
+            {navPosition === 'top' && (
+                <div className="sticky top-4 z-30 w-full flex justify-center pointer-events-none mb-4" style={styleConfig?.navBar}>
+                    <div className="pointer-events-auto">
+                        <NavDots />
+                    </div>
+                </div>
+            )}
+
+            {documents.length === 0 && !isLoadingFile ? (
+                <div className="text-center text-gray-500 my-auto">
                     <Info className="w-16 h-16 mx-auto mb-4 opacity-50" />
-                    <h2 className="text-xl font-semibold mb-2">No Document Loaded</h2>
-                    <p className="max-w-md mx-auto">Upload images or a PDF to start annotating.</p>
+                    <p>Load documents to begin.</p>
                 </div>
             ) : isLoadingFile ? (
-                <div className="flex flex-col items-center justify-center text-blue-400 my-auto mx-auto">
+                <div className="flex flex-col items-center justify-center text-blue-400 my-auto">
                     <Loader2 className="w-12 h-12 animate-spin mb-4" />
-                    <span className="text-lg font-medium">Loading Document...</span>
+                    <span>Loading...</span>
                 </div>
             ) : (
-                pages.map((page, index) => (
+                currentPage && (
                     <PageRenderer
-                        key={page.id}
-                        page={page}
+                        key={currentPage.id}
+                        page={currentPage}
                         scale={scale}
                         tool={tool}
                         strokeWidth={strokeWidth}
                         fontSize={fontSize}
-                        // Filter annotations for this page
-                        annotations={annotations.filter(a => (a.page || 1) === page.pageNumber)}
+                        annotations={visibleAnnotations.filter(a => (a.page || 1) === currentPage.pageNumber)}
                         onAnnotationsChange={(updatedPageAnns) => {
                              if(isViewOnly) return;
                              setAnnotations(prev => {
-                                 // Remove old anns for this page, add updated ones
-                                 const others = prev.filter(a => (a.page || 1) !== page.pageNumber);
+                                 const others = prev.filter(a => a.documentId !== currentDocumentId || (a.page || 1) !== currentPage.pageNumber);
                                  return [...others, ...updatedPageAnns];
                              });
                         }}
@@ -1182,144 +1277,93 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
                             setSelectedAnnotationId(ann.id);
                             setNewAnnotationId(ann.id); 
                             setShowCommentModal(true);
-                            events?.onAnnotationAdd?.(ann);
                         }}
-                        onAnnotationUpdate={(ann) => {
-                            if(!canEdit) return;
-                            events?.onAnnotationUpdate?.(ann);
-                        }}
+                        onAnnotationUpdate={(ann) => events?.onAnnotationUpdate?.(ann)}
                         onSelect={setSelectedAnnotationId}
                         selectedId={selectedAnnotationId}
                         severity={severity}
                         reasonCode={reasonCode}
                         isVisible={true}
                         currentColor={activeColor}
-                        onDelete={(id) => deleteAnnotation(id)}
+                        onDelete={deleteAnnotation}
                         onEdit={() => setShowCommentModal(true)}
                         readOnly={layerReadOnly}
+                        onDimensionsUpdate={handleDimensionsUpdate}
                     />
-                ))
+                )
             )}
+            
+            {navPosition === 'bottom' && <div className="sticky bottom-4 z-20 pointer-events-none w-full flex justify-center" style={styleConfig?.navBar}>
+                <div className="pointer-events-auto"><NavDots /></div>
+            </div>}
         </div>
 
-        {layoutMode === 'bottom' && !showCamera && (
-                <Toolbar 
-                    currentTool={tool}
-                    setTool={(t) => { setTool(t); if (t !== 'select') setSelectedAnnotationId(null); }}
-                    currentStrokeWidth={strokeWidth}
-                    setStrokeWidth={setStrokeWidth}
-                    currentFontSize={fontSize}
-                    setFontSize={setFontSize}
-                    onClear={handleClear}
-                    onSave={handleSave}
-                    onLoad={handleLoad}
-                    onFileChange={handleFileChange}
-                    onAnalyze={handleAnalyze}
-                    isAnalyzing={isAnalyzing}
-                    hasFile={pages.length > 0}
-                    scale={scale}
-                    setScale={(newScale) => { setAutoFit(false); setScale(newScale); }}
-                    onFitToScreen={handleFitToScreen}
-                    isFullscreen={isFullscreen}
-                    onToggleFullscreen={toggleFullscreen}
-                    selectedAnnotationId={selectedAnnotationId}
-                    onDeleteSelected={() => selectedAnnotationId && deleteAnnotation(selectedAnnotationId)}
-                    onEditSelected={() => setShowCommentModal(true)}
-                    severity={severity}
-                    setSeverity={updateSelectedSeverity}
-                    reasonCode={reasonCode}
-                    setReasonCode={updateSelectedReasonCode}
-                    customSeverityColors={severityOptions}
-                    customReasonCodes={reasonCodeOptions}
-                    style={styleConfig?.toolbar}
-                    variant='bottom'
-                    mode={mode}
-
-                    // Camera & Thumbnails Props (Bottom toolbar needs them too)
-                    showThumbnails={showThumbnails}
-                    onToggleThumbnails={() => setShowThumbnails(!showThumbnails)}
-                />
-            )}
-
-        {/* Right Panel: Annotation List */}
+        {layoutMode === 'bottom' && (
+             <Toolbar 
+                 currentTool={tool} setTool={setTool}
+                 currentStrokeWidth={strokeWidth} setStrokeWidth={setStrokeWidth}
+                 currentFontSize={fontSize} setFontSize={setFontSize}
+                 onClear={() => { setAnnotations([]); events?.onClearAnnotations?.(); }}
+                 onSave={() => {}}
+                 onLoad={() => {}}
+                 onFileChange={handleFileUpload}
+                 onAnalyze={handleAnalyze}
+                 isAnalyzing={isAnalyzing}
+                 hasFile={documents.length > 0}
+                 scale={scale} setScale={(s) => { setScale(s); setAutoFit(false); }}
+                 onFitToScreen={() => setAutoFit(true)}
+                 isFullscreen={isFullscreen} onToggleFullscreen={() => {}}
+                 selectedAnnotationId={selectedAnnotationId}
+                 onDeleteSelected={() => selectedAnnotationId && deleteAnnotation(selectedAnnotationId)}
+                 onEditSelected={() => setShowCommentModal(true)}
+                 severity={severity} setSeverity={setSeverity}
+                 reasonCode={reasonCode} setReasonCode={setReasonCode}
+                 customSeverityColors={severityOptions}
+                 customReasonCodes={reasonCodeOptions}
+                 style={styleConfig?.toolbar}
+                 variant='bottom'
+                 mode={mode}
+                 showThumbnails={showThumbnails}
+                 onToggleThumbnails={() => setShowThumbnails(!showThumbnails)}
+             />
+        )}
+        
         {showRightPanel && (
-            <div className={`
-                fixed inset-y-0 right-0 z-40 bg-gray-900 border-l border-gray-700 flex flex-col shadow-2xl transition-transform duration-300 w-80 
-                ${isMobile ? 'top-14' : 'top-14'}
-            `}>
-                <div className="p-4 border-b border-gray-800 flex justify-between items-center">
-                     <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2">
-                         <ListChecks className="w-4 h-4" />
-                         Annotations ({annotations.length})
-                     </h3>
-                     {isMobile && (
-                         <button onClick={() => setShowRightPanel(false)}><X className="w-5 h-5 text-gray-500" /></button>
-                     )}
-                </div>
-                <div className="flex-1 overflow-y-auto p-4 space-y-3 pb-20">
-                    {annotations.length === 0 ? (
-                        <div className="text-center text-gray-500 py-10 text-sm">No annotations yet.</div>
-                    ) : (
-                        annotations.map((ann) => (
-                            <div 
-                                key={ann.id}
-                                onClick={() => {
-                                    scrollToPage((ann.page || 1) - 1);
-                                    setSelectedAnnotationId(ann.id);
-                                    if(isMobile) setShowRightPanel(false);
-                                }}
-                                className={`p-3 rounded-lg border cursor-pointer transition-all hover:bg-gray-800 ${
-                                    selectedAnnotationId === ann.id 
-                                    ? 'bg-gray-800 border-blue-500 shadow-lg' 
-                                    : 'bg-gray-900 border-gray-700'
-                                }`}
-                            >
-                                <div className="flex items-start gap-3">
-                                    <div 
-                                        className="w-3 h-3 rounded-full mt-1 shrink-0" 
-                                        style={{ backgroundColor: ann.color || severityOptions[4] }} 
-                                    />
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex justify-between items-center mb-1">
-                                            <span className="text-sm font-semibold text-gray-200 truncate">
-                                                {ann.reasonCode || 'Uncategorized'}
-                                            </span>
-                                            <span className="text-[10px] text-gray-500 bg-gray-800 px-1.5 py-0.5 rounded flex items-center gap-1">
-                                                <MapPin className="w-2 h-2" />
-                                                Pg {ann.page || 1}
-                                            </span>
-                                        </div>
-                                        <p className="text-xs text-gray-400 truncate">
-                                            {ann.type === 'text' ? (ann as TextAnnotation).text : (ann.comment || 'No comments')}
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-                        ))
-                    )}
-                </div>
+            <div className={`absolute top-14 bottom-0 right-0 z-40 bg-gray-900 border-l border-gray-700 w-80 flex flex-col`}>
+                 <div className="p-3 border-b border-gray-800 flex justify-between items-center">
+                     <span className="font-bold text-gray-400 uppercase text-xs">Annotations ({visibleAnnotations.length})</span>
+                     <button onClick={() => setShowRightPanel(false)} className="text-gray-500 hover:text-white"><X className="w-4 h-4" /></button>
+                 </div>
+                 <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                     {visibleAnnotations.map(ann => (
+                         <div key={ann.id} onClick={() => {
+                             setSelectedAnnotationId(ann.id);
+                             const page = visiblePages.find(p => p.pageNumber === (ann.page || 1));
+                             if(page) document.getElementById(`page-${page.id}`)?.scrollIntoView({behavior:'smooth'});
+                         }} className={`p-3 rounded border cursor-pointer ${selectedAnnotationId === ann.id ? 'bg-gray-800 border-blue-500' : 'bg-gray-900 border-gray-700'}`}>
+                             <div className="flex items-center justify-between mb-1">
+                                 <span className="text-xs font-bold text-gray-200">{ann.reasonCode}</span>
+                                 <span className="text-[10px] text-gray-500">Pg {ann.page}</span>
+                             </div>
+                             <p className="text-xs text-gray-400 truncate">{ann.type==='text'?(ann as TextAnnotation).text:ann.comment}</p>
+                         </div>
+                     ))}
+                 </div>
             </div>
         )}
 
-        {/* Comment Modal */}
         <CommentModal 
-            key={selectedAnnotationId || 'modal'}
             isOpen={showCommentModal}
             onClose={handleCancelModal}
             onSave={handleSaveModal}
-            onDelete={() => {
-                if (selectedAnnotationId) {
-                    deleteAnnotation(selectedAnnotationId); 
-                    setShowCommentModal(false);
-                }
-            }}
+            onDelete={() => selectedAnnotationId && deleteAnnotation(selectedAnnotationId)}
             initialData={{
-                comment: selectedAnnotation?.comment || "",
-                severity: selectedAnnotation?.severity || severity,
-                reasonCode: selectedAnnotation?.reasonCode || reasonCode,
-                status: selectedAnnotation?.status || 'New',
-                text: (selectedAnnotation as TextAnnotation)?.text || "",
-                type: selectedAnnotation?.type,
+                comment: annotations.find(a => a.id === selectedAnnotationId)?.comment || "",
+                severity: annotations.find(a => a.id === selectedAnnotationId)?.severity || severity,
+                reasonCode: annotations.find(a => a.id === selectedAnnotationId)?.reasonCode || reasonCode,
+                status: annotations.find(a => a.id === selectedAnnotationId)?.status || 'New',
+                text: (annotations.find(a => a.id === selectedAnnotationId) as TextAnnotation)?.text || "",
+                type: annotations.find(a => a.id === selectedAnnotationId)?.type,
                 isNew: selectedAnnotationId === newAnnotationId
             }}
             severityOptions={severityOptions}
@@ -1328,18 +1372,15 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
             readOnly={modalReadOnly}
         />
 
-        {/* Camera Modal */}
         <CameraModal 
             isOpen={showCamera}
             onClose={() => setShowCamera(false)}
             onCapture={handleCameraCapture}
         />
-
       </div>
     </div>
   );
 });
 
 SmartDocApp.displayName = 'SmartDocApp';
-
 export default SmartDocApp;

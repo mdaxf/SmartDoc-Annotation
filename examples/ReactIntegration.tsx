@@ -54,7 +54,7 @@ const ReactIntegrationExample: React.FC = () => {
             // Pre-fill
             initialAnnotations={[
                 {
-                    id: 'init-1', type: 'text', page: 1, 
+                    id: 'init-1', documentId: '0', type: 'text', page: 1, 
                     x: 50, y: 50, text: 'Dealership Entrance', 
                     fontSize: 30, color: '#ffffff', strokeWidth: 1
                 }

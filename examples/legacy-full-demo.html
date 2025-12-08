@@ -9,8 +9,6 @@
     <!-- 1. Load Library Styles -->
     <!-- DEV MODE: Link to source css -->
     <link rel="stylesheet" href="../index.css"> 
-    <!-- PROD MODE: Link to built css -->
-    <!-- <link rel="stylesheet" href="../distribute/style.css"> -->
     
     <!-- 2. Tailwind (for this demo page layout only) -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -37,9 +35,57 @@
         .log-data { color: #9ca3af; display: block; margin-top: 0.25rem; white-space: pre-wrap; word-break: break-all; }
 
         @keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* Error Overlay Styles */
+        #error-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.95);
+            color: white;
+            z-index: 9999;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 2rem;
+        }
     </style>
 </head>
 <body class="bg-gray-900 text-gray-200 h-screen w-screen flex flex-col overflow-hidden font-sans">
+
+    <!-- Error Overlay -->
+    <div id="error-overlay">
+        <h2 class="text-3xl font-bold mb-4 text-red-500">Demo Setup Required</h2>
+        <p class="mb-6 text-xl text-gray-300">The SmartDoc library could not be loaded.</p>
+        
+        <div class="bg-gray-800 p-6 rounded-lg text-left font-mono text-sm border border-gray-700 mb-8 max-w-2xl w-full shadow-2xl">
+            <p class="text-gray-400 mb-2 font-bold">// Detected Issues:</p>
+            <ul class="list-disc pl-5 space-y-2 text-red-300">
+                <li>
+                    <strong>CORS Policy Block:</strong> You might be opening this file via <code>file://</code>. 
+                    Browsers block ES Modules in this mode.
+                </li>
+                <li>
+                    <strong>Missing Bundle:</strong> If you uncommented the production script, ensure you have run <code>npm run build</code>.
+                </li>
+            </ul>
+        </div>
+        
+        <p class="mb-4 text-lg font-medium">To run this demo, choose one method:</p>
+        <div class="flex flex-col md:flex-row gap-6 w-full max-w-2xl">
+            <div class="flex-1 bg-blue-900/20 p-6 rounded-xl border border-blue-800/50 hover:bg-blue-900/30 transition">
+                <h3 class="font-bold text-blue-400 mb-2 text-lg">Option A: Dev Server</h3>
+                <code class="bg-black/30 px-2 py-1 rounded text-blue-200 block mb-2 w-fit">npm run dev</code>
+                <p class="text-sm text-gray-400">Run this command in your terminal and open the provided Localhost URL.</p>
+            </div>
+            <div class="flex-1 bg-green-900/20 p-6 rounded-xl border border-green-800/50 hover:bg-green-900/30 transition">
+                 <h3 class="font-bold text-green-400 mb-2 text-lg">Option B: Production Build</h3>
+                 <code class="bg-black/30 px-2 py-1 rounded text-green-200 block mb-2 w-fit">npm run build</code>
+                 <p class="text-sm text-gray-400">Build the bundle, then edit this HTML file to uncomment the "PROD MODE" script tag.</p>
+            </div>
+        </div>
+    </div>
 
     <!-- Header -->
     <div class="h-16 bg-gray-800 border-b border-gray-700 flex items-center justify-between px-6 shrink-0 shadow-md z-20">
@@ -109,9 +155,14 @@
 
     <!-- A. DEV MODE (Vite/TS) - Works when running `npm run dev` -->
     <script type="module">
-        import { createSmartDoc } from '../smartDoc.ts';
-        window.SmartDoc = { create: createSmartDoc };
-        window.dispatchEvent(new Event('smartdoc-lib-ready'));
+        try {
+            import { createSmartDoc } from '../smartDoc.ts';
+            window.SmartDoc = { create: createSmartDoc };
+            window.dispatchEvent(new Event('smartdoc-lib-ready'));
+        } catch (e) {
+            console.error("Failed to load module:", e);
+            document.getElementById('error-overlay').style.display = 'flex';
+        }
     </script>
 
     <!-- B. PROD MODE (Bundle) - Works after `npm run build` -->
@@ -148,7 +199,8 @@
         // --- Main Initialization Function ---
         function initApp(mode = 'full') {
             if (!window.SmartDoc) {
-                alert('Library not loaded yet.');
+                // If SmartDoc is missing, show error overlay
+                document.getElementById('error-overlay').style.display = 'flex';
                 return;
             }
 
@@ -163,8 +215,8 @@
 
             // 2. Define Configuration based on Mode
             const config = {
-                // Default Content
-                documentSrc: 'https://images.unsplash.com/photo-1605218427306-02202067d8f5?auto=format&fit=crop&w=1200&q=80',
+                // Default Content (Commented out for Clean Start)
+                // documentSrc: 'https://images.unsplash.com/photo-1605218427306-02202067d8f5?auto=format&fit=crop&w=1200&q=80',
                 
                 // UI Settings
                 defaultLayout: 'bottom', // 'sidebar' or 'bottom'
@@ -195,11 +247,11 @@
                 onAnnotationAdd: (ann) => log('Event: Add', { id: ann.id, type: ann.type }),
                 onAnnotationUpdate: (ann) => log('Event: Update', { id: ann.id, status: ann.status }),
                 onAnnotationDelete: (id) => log('Event: Delete', id),
-                onClearAnnotations: () => log('Event', 'Annotations Cleared'),
+                onClearAnnotations: () => log('Event', 'Annotations Cleared (Clean Event)'),
                 
                 // New: Camera Callback
-                onPhotoAdd: (base64) => {
-                    log('Event: Photo Taken', `Received Base64 Image (${base64.length} chars)`);
+                onPhotoAdd: (data) => {
+                    log('Event: Photo Taken', `ID: ${data.id} | Size: ${data.dataUrl.length}`);
                     // Example: You could save this to a server here
                 },
 
@@ -214,6 +266,8 @@
                 appInstance = window.SmartDoc.create('smart-doc-root', config, events);
                 
                 // Pre-load some annotations for visual test
+                // (Commented out to ensure Clean State)
+                /*
                 if (mode !== 'full') {
                     appInstance.setAnnotations([
                         { 
@@ -224,6 +278,7 @@
                         }
                     ]);
                 }
+                */
 
             } catch (err) {
                 console.error(err);
@@ -270,9 +325,19 @@
             initApp('full');
         });
 
-        // Fallback if event fired before listener
+        // Fallback for load issues
         window.onload = () => {
-            if (window.SmartDoc && !appInstance) {
+            // Check if SmartDoc loaded successfully
+            if (!window.SmartDoc) {
+                // Give it a small grace period for module loading, otherwise show error
+                setTimeout(() => {
+                    if (!window.SmartDoc) {
+                        document.getElementById('error-overlay').style.display = 'flex';
+                    } else if (!appInstance) {
+                         initApp('full');
+                    }
+                }, 500);
+            } else if (!appInstance) {
                 initApp('full');
             }
         };

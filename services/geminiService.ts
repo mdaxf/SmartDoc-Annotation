@@ -15,7 +15,7 @@ const getApiKey = (): string | undefined => {
   return undefined;
 };
 
-export const analyzeImageForAnnotations = async (base64Image: string, width: number, height: number): Promise<Annotation[]> => {
+export const analyzeImageForAnnotations = async (documentId: string, base64Image: string, width: number, height: number): Promise<Annotation[]> => {
   const apiKey = getApiKey();
   
   if (!apiKey) {
@@ -85,6 +85,7 @@ export const analyzeImageForAnnotations = async (base64Image: string, width: num
 
         const rect: RectAnnotation = {
           id: simpleId(),
+          documentId,
           type: 'rect',
           x: x,
           y: y,

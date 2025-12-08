@@ -22,9 +22,30 @@
             background: #111827;
             position: relative; 
         }
+        #error-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.9);
+            color: white;
+            z-index: 9999;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 2rem;
+        }
     </style>
 </head>
 <body class="bg-gray-100 p-8 font-sans">
+    
+    <div id="error-overlay">
+        <h2 class="text-3xl font-bold mb-4 text-red-500">Library Not Loaded</h2>
+        <p class="mb-4">You are likely running this file via <code>file://</code> or forgot to build the bundle.</p>
+        <p class="font-mono bg-gray-800 p-4 rounded text-sm text-gray-300">
+            Please run <code>npm run dev</code> and use localhost.
+        </p>
+    </div>
 
     <div class="max-w-7xl mx-auto space-y-6">
         
@@ -58,9 +79,13 @@
       ========================================
     -->
     <script type="module">
-        import { createSmartDoc } from '../smartDoc.ts';
-        window.SmartDoc = { create: createSmartDoc };
-        window.dispatchEvent(new Event('library-loaded'));
+        try {
+            import { createSmartDoc } from '../smartDoc.ts';
+            window.SmartDoc = { create: createSmartDoc };
+            window.dispatchEvent(new Event('library-loaded'));
+        } catch (e) {
+            document.getElementById('error-overlay').style.display = 'flex';
+        }
     </script>
 
     <!-- 
@@ -134,6 +159,15 @@
             // You can also pass an array here imperatively!
             docInstance.loadDocument('https://raw.githubusercontent.com/mozilla/pdf.js/ba2edeae/examples/learning/helloworld.pdf');
         }
+
+        // Failsafe check
+        window.onload = () => {
+            setTimeout(() => {
+                if (!window.SmartDoc) {
+                    document.getElementById('error-overlay').style.display = 'flex';
+                }
+            }, 1000);
+        };
 
     </script>
 </body>

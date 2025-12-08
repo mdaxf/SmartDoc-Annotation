@@ -105,8 +105,11 @@ const Toolbar: React.FC<ToolbarProps> = ({
   mode = 'full'
 }) => {
   
-  const handleZoomIn = () => setScale(Math.min(5, scale + 0.1));
-  const handleZoomOut = () => setScale(Math.max(0.1, scale - 0.1));
+  // Zoom Controls updated to allow much lower zoom (5%) and smoother steps
+  // Explicitly trigger manual zoom state via setScale callback if wrapper supports it,
+  // but here we rely on parent wrapper passing a setScale that handles side effects (autoFit=false)
+  const handleZoomIn = () => setScale(Math.min(5, scale * 1.1));
+  const handleZoomOut = () => setScale(Math.max(0.05, scale * 0.9));
 
   const activeSeverityColors = customSeverityColors || SEVERITY_COLORS;
   const activeReasonCodes = customReasonCodes || REASON_CODES;

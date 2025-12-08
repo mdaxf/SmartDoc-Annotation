@@ -12,15 +12,16 @@ export interface Point {
 
 export interface BaseAnnotation {
   id: string;
+  documentId: string; // NEW: Link annotation to specific doc
   type: ToolType;
   color: string;
   strokeWidth: number;
   selected?: boolean;
   comment?: string;
-  page?: number; // Added for PDF pagination support
+  page?: number; 
   severity?: number;
   reasonCode?: string;
-  status?: string; // New status field
+  status?: string; 
 }
 
 export interface RectAnnotation extends BaseAnnotation {
@@ -29,7 +30,7 @@ export interface RectAnnotation extends BaseAnnotation {
   y: number;
   width: number;
   height: number;
-  label?: string; // For Gemini auto-labels
+  label?: string; 
 }
 
 export interface CircleAnnotation extends BaseAnnotation {
@@ -46,7 +47,7 @@ export interface PenAnnotation extends BaseAnnotation {
 
 export interface ArrowAnnotation extends BaseAnnotation {
   type: 'arrow';
-  points: [Point, Point]; // Start and End
+  points: [Point, Point]; 
 }
 
 export interface TextAnnotation extends BaseAnnotation {
@@ -62,16 +63,28 @@ export type Annotation = RectAnnotation | CircleAnnotation | PenAnnotation | Tex
 export interface DocFile {
   name: string;
   type: string;
-  dataUrl: string; // Base64 or Blob URL
+  dataUrl: string; 
 }
 
 export interface PageData {
   id: string;
-  pageNumber: number;
+  documentId: string; // NEW
+  pageNumber: number; // Page number RELATIVE to the specific document
   width: number;
   height: number;
   imageSrc?: string;
   pdfPage?: any;
+  docxData?: Blob; 
+  textContent?: string; // HTML/TXT
+  modelSrc?: string; // 3D GLB/GLTF
+  sheetData?: any; // Excel (Placeholder for future)
+}
+
+export interface DocumentMeta {
+    id: string;
+    name: string;
+    type: string;
+    pageCount: number;
 }
 
 // Library Configuration Types
@@ -81,9 +94,11 @@ export interface SmartDocStyleConfig {
   toolbar?: React.CSSProperties;
   workspace?: React.CSSProperties;
   layout?: React.CSSProperties;
+  navBar?: React.CSSProperties; // New
 }
 
 export interface SmartDocEvents {
+  onSmartDocReady?: () => void;
   onDocumentReady?: () => void;
   onAnnotationsReady?: () => void;
   onAnnotationAdd?: (annotation: Annotation) => void;
@@ -92,38 +107,38 @@ export interface SmartDocEvents {
   onClearAnnotations?: () => void;
   /**
    * Triggered when a new photo is captured via the Camera.
-   * Returns the Base64 data URL of the captured image.
+   * Returns object with dataUrl and the newly assigned document ID.
    */
-  onPhotoAdd?: (dataUrl: string) => void;
+  onPhotoAdd?: (data: { dataUrl: string; id: string }) => void;
   /**
-   * Triggered when the Save button is clicked.
-   * If defined, the default JSON download is prevented, and data is passed here instead.
+   * Triggered when a document is uploaded via the Toolbar.
+   * Returns object with the generated ID, the raw File object, and the Data URL (base64).
    */
+  onUpload?: (data: { id: string; file: File; dataUrl: string }) => void;
   onSave?: (data: { file: string; annotations: Annotation[]; timestamp: string }) => void;
+  onDocumentChange?: (documentId: string) => void; // New
 }
 
 export interface SmartDocConfig {
-  documentSrc?: string | string[]; // URL or Array of URLs to auto-load
+  documentSrc?: string | string[]; 
+  documentIds?: string[]; // NEW: ID mapping for source array
   initialAnnotations?: Annotation[];
   
-  // Customization Lists
-  severityOptions?: Record<number, string>; // { 1: '#color', ... }
+  severityOptions?: Record<number, string>; 
   reasonCodeOptions?: string[];
   statusOptions?: string[];
   
-  // UI Options
   hideLoadFileBtn?: boolean;
   hideSaveJsonBtn?: boolean;
   hideLoadJsonBtn?: boolean;
-  defaultLayout?: 'sidebar' | 'bottom'; // Layout preference
+  defaultLayout?: 'sidebar' | 'bottom'; 
+  navPosition?: 'top' | 'bottom'; // NEW: Document switching nav position
   
-  // New Options
-  mode?: SmartDocMode; // 'full' | 'edit' | 'viewonly'
+  mode?: SmartDocMode; 
   defaultTool?: ToolType; 
   hideCameraBtn?: boolean;
-  showThumbnails?: boolean; // Initial state
+  showThumbnails?: boolean; 
 
-  // Styling
   styleConfig?: SmartDocStyleConfig;
 }
 
@@ -131,29 +146,13 @@ export interface SmartDocProps extends SmartDocConfig {
   events?: SmartDocEvents;
 }
 
-/**
- * Interface for controlling the SmartDoc instance programmatically.
- */
 export interface SmartDocHandle {
-  /**
-   * Load a document from a URL, File, or an Array of URLs/Files.
-   */
-  loadDocument: (source: string | File | (string | File)[]) => Promise<void>;
-  /**
-   * Get the current list of annotations.
-   */
+  loadDocument: (source: string | File | (string | File)[], documentIds?: string[]) => Promise<void>;
   getAnnotations: () => Annotation[];
-  /**
-   * Replace the current annotations with a new list.
-   */
   setAnnotations: (annotations: Annotation[]) => void;
-  /**
-   * Clear all annotations.
-   */
   clearAnnotations: () => void;
 }
 
-// Global Declaration for Distributed Library
 declare global {
   interface Window {
     SmartDoc: {
