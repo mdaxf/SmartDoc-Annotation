@@ -1,0 +1,282 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmartDoc - Full Features & Legacy Integration Demo</title>
+    
+    <!-- 1. Load Library Styles -->
+    <!-- DEV MODE: Link to source css -->
+    <link rel="stylesheet" href="../index.css"> 
+    <!-- PROD MODE: Link to built css -->
+    <!-- <link rel="stylesheet" href="../distribute/style.css"> -->
+    
+    <!-- 2. Tailwind (for this demo page layout only) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <style>
+        /* Container must have dimensions */
+        #smart-doc-root {
+            width: 100%;
+            height: 100%;
+            background: #111827;
+            position: relative; 
+        }
+        
+        .log-entry {
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 0.75rem;
+            padding: 0.5rem;
+            border-bottom: 1px solid #374151;
+            animation: fadeIn 0.3s ease-in;
+        }
+        .log-entry:first-child { border-top: 1px solid #374151; }
+        .log-time { color: #60a5fa; margin-right: 0.5rem; }
+        .log-label { font-weight: bold; color: #e5e7eb; }
+        .log-data { color: #9ca3af; display: block; margin-top: 0.25rem; white-space: pre-wrap; word-break: break-all; }
+
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-200 h-screen w-screen flex flex-col overflow-hidden font-sans">
+
+    <!-- Header -->
+    <div class="h-16 bg-gray-800 border-b border-gray-700 flex items-center justify-between px-6 shrink-0 shadow-md z-20">
+        <div class="flex items-center gap-4">
+            <h1 class="text-xl font-bold text-white tracking-tight">SmartDoc <span class="text-blue-500">Legacy Integration</span></h1>
+            <span class="px-2 py-1 rounded bg-blue-900/30 text-blue-300 text-xs border border-blue-800">Vanilla JS</span>
+        </div>
+        <div class="flex items-center gap-3">
+            <button onclick="initApp('full')" class="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded transition">Full Mode</button>
+            <button onclick="initApp('edit')" class="px-4 py-2 text-sm font-medium bg-gray-700 hover:bg-gray-600 text-white rounded transition">Edit Mode</button>
+            <button onclick="initApp('viewonly')" class="px-4 py-2 text-sm font-medium bg-gray-700 hover:bg-gray-600 text-white rounded transition">View Only</button>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="flex flex-1 overflow-hidden">
+        
+        <!-- SmartDoc Container Area -->
+        <div class="flex-1 relative flex flex-col">
+            <div id="smart-doc-root"></div>
+        </div>
+
+        <!-- Sidebar: Controls & Logs -->
+        <div class="w-96 bg-gray-800 border-l border-gray-700 flex flex-col shadow-xl z-10">
+            
+            <!-- Imperative Controls -->
+            <div class="p-4 border-b border-gray-700 space-y-4">
+                <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider">External Controls</h3>
+                
+                <div class="grid grid-cols-2 gap-2">
+                    <button onclick="loadPDF()" class="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded text-xs text-white border border-gray-600">
+                        Load PDF
+                    </button>
+                    <button onclick="loadImages()" class="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded text-xs text-white border border-gray-600">
+                        Load Images
+                    </button>
+                </div>
+
+                <div class="grid grid-cols-2 gap-2">
+                    <button onclick="getAnnotations()" class="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded text-xs text-white border border-gray-600">
+                        Log Annotations
+                    </button>
+                    <button onclick="clearAnnotations()" class="px-3 py-2 bg-red-900/30 hover:bg-red-900/50 rounded text-xs text-red-300 border border-red-900/50">
+                        Clear Canvas
+                    </button>
+                </div>
+            </div>
+
+            <!-- Event Log -->
+            <div class="flex-1 flex flex-col min-h-0">
+                <div class="p-3 bg-gray-900 border-b border-gray-700 flex justify-between items-center">
+                    <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider">Event Log</h3>
+                    <button onclick="document.getElementById('log-container').innerHTML = ''" class="text-[10px] text-gray-500 hover:text-white">Clear</button>
+                </div>
+                <div id="log-container" class="flex-1 overflow-y-auto bg-black/20">
+                    <!-- Logs appear here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 
+      ========================================
+      LIBRARY LOADING STRATEGY
+      ========================================
+    -->
+
+    <!-- A. DEV MODE (Vite/TS) - Works when running `npm run dev` -->
+    <script type="module">
+        import { createSmartDoc } from '../smartDoc.ts';
+        window.SmartDoc = { create: createSmartDoc };
+        window.dispatchEvent(new Event('smartdoc-lib-ready'));
+    </script>
+
+    <!-- B. PROD MODE (Bundle) - Works after `npm run build` -->
+    <!-- 
+    <script src="../distribute/smart-doc.bundle.js"></script>
+    <script>
+        window.dispatchEvent(new Event('smartdoc-lib-ready'));
+    </script> 
+    -->
+
+    <!-- Demo Logic -->
+    <script>
+        let appInstance = null;
+
+        // Logging Utility
+        function log(event, data) {
+            const container = document.getElementById('log-container');
+            const div = document.createElement('div');
+            div.className = 'log-entry';
+            
+            const time = new Date().toLocaleTimeString('en-US', { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+            const dataStr = data ? (typeof data === 'object' ? JSON.stringify(data, null, 2) : String(data)) : '';
+            
+            // Truncate long data like Base64
+            const displayData = dataStr.length > 200 ? dataStr.substring(0, 200) + '... [truncated]' : dataStr;
+
+            div.innerHTML = `
+                <div><span class="log-time">[${time}]</span><span class="log-label">${event}</span></div>
+                ${displayData ? `<span class="log-data">${displayData}</span>` : ''}
+            `;
+            container.prepend(div);
+        }
+
+        // --- Main Initialization Function ---
+        function initApp(mode = 'full') {
+            if (!window.SmartDoc) {
+                alert('Library not loaded yet.');
+                return;
+            }
+
+            // 1. Unmount existing to clean up (Simulation of page navigation or reset)
+            if (appInstance) {
+                appInstance.unmount();
+                appInstance = null;
+                log('System', 'Previous instance unmounted.');
+            }
+
+            log('System', `Initializing in ${mode.toUpperCase()} mode...`);
+
+            // 2. Define Configuration based on Mode
+            const config = {
+                // Default Content
+                documentSrc: 'https://images.unsplash.com/photo-1605218427306-02202067d8f5?auto=format&fit=crop&w=1200&q=80',
+                
+                // UI Settings
+                defaultLayout: 'bottom', // 'sidebar' or 'bottom'
+                showThumbnails: true,    // Start with thumbs open
+                hideCameraBtn: false,    // Show camera button
+                
+                // Mode Settings (New Feature)
+                mode: mode, // 'full', 'edit', 'viewonly'
+                
+                // Interaction Defaults
+                defaultTool: mode === 'full' ? 'arrow' : 'hand', 
+                
+                // Customization
+                severityOptions: { 1: '#4ade80', 2: '#facc15', 3: '#f87171', 4: '#ef4444' },
+                statusOptions: ['New', 'In Progress', 'Done', 'Rejected'],
+                
+                // Style Overrides (Optional)
+                styleConfig: {
+                    workspace: { backgroundColor: '#1f2937' } // Match dark theme
+                }
+            };
+
+            // 3. Define Callbacks
+            const events = {
+                onDocumentReady: () => log('Event', 'onDocumentReady'),
+                onAnnotationsReady: () => log('Event', 'onAnnotationsReady'),
+                
+                onAnnotationAdd: (ann) => log('Event: Add', { id: ann.id, type: ann.type }),
+                onAnnotationUpdate: (ann) => log('Event: Update', { id: ann.id, status: ann.status }),
+                onAnnotationDelete: (id) => log('Event: Delete', id),
+                onClearAnnotations: () => log('Event', 'Annotations Cleared'),
+                
+                // New: Camera Callback
+                onPhotoAdd: (base64) => {
+                    log('Event: Photo Taken', `Received Base64 Image (${base64.length} chars)`);
+                    // Example: You could save this to a server here
+                },
+
+                onSave: (data) => {
+                    log('Event: Save', `File: ${data.file}, Count: ${data.annotations.length}`);
+                    alert('Save triggered! JSON logged to sidebar.');
+                }
+            };
+
+            // 4. Create Instance
+            try {
+                appInstance = window.SmartDoc.create('smart-doc-root', config, events);
+                
+                // Pre-load some annotations for visual test
+                if (mode !== 'full') {
+                    appInstance.setAnnotations([
+                        { 
+                            id: 'demo-1', type: 'rect', page: 1, 
+                            x: 100, y: 100, width: 200, height: 150, 
+                            color: '#facc15', strokeWidth: 4, severity: 2, 
+                            status: 'New', comment: 'Existing Defect' 
+                        }
+                    ]);
+                }
+
+            } catch (err) {
+                console.error(err);
+                log('Error', 'Failed to create instance');
+            }
+        }
+
+        // --- Imperative API Examples ---
+
+        function loadPDF() {
+            if (appInstance) {
+                log('Command', 'Loading PDF...');
+                appInstance.loadDocument('https://raw.githubusercontent.com/mozilla/pdf.js/ba2edeae/examples/learning/helloworld.pdf');
+            }
+        }
+
+        function loadImages() {
+            if (appInstance) {
+                log('Command', 'Loading 3 Images...');
+                appInstance.loadDocument([
+                    'https://images.unsplash.com/photo-1597773150796-e5c14ebecbf5?auto=format&fit=crop&w=800&q=80',
+                    'https://images.unsplash.com/photo-1533473359331-0135ef1b58bf?auto=format&fit=crop&w=800&q=80',
+                    'https://images.unsplash.com/photo-1494976388531-d1058494cdd8?auto=format&fit=crop&w=800&q=80'
+                ]);
+            }
+        }
+
+        function getAnnotations() {
+            if (appInstance) {
+                const anns = appInstance.getAnnotations();
+                log('Command: Get', anns);
+            }
+        }
+
+        function clearAnnotations() {
+            if (appInstance) {
+                appInstance.clearAnnotations();
+                log('Command', 'Clear called');
+            }
+        }
+
+        // Auto-Init on Load
+        window.addEventListener('smartdoc-lib-ready', () => {
+            initApp('full');
+        });
+
+        // Fallback if event fired before listener
+        window.onload = () => {
+            if (window.SmartDoc && !appInstance) {
+                initApp('full');
+            }
+        };
+
+    </script>
+</body>
+</html>

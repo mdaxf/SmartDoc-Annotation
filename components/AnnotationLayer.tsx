@@ -27,6 +27,8 @@ interface AnnotationLayerProps {
   // New actions for overlay buttons
   onDelete?: (id: string) => void;
   onEdit?: (id: string) => void;
+  
+  readOnly?: boolean;
 }
 
 const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
@@ -48,7 +50,8 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
   reasonCode,
   currentColor,
   onDelete,
-  onEdit
+  onEdit,
+  readOnly
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -229,10 +232,20 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
   const getCanvasPoint = (e: React.MouseEvent): Point => {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
+    
+    // Use getBoundingClientRect for precise screen coordinates
     const rect = canvas.getBoundingClientRect();
+    
+    // Calculate the actual scale ratio between screen pixels and canvas internal pixels
+    // This handles zoom, CSS resizing, and high-DPI displays automatically
+    // It is more robust than relying on the `scale` prop passed down, which might be stale during animations
+    // We ignore borders for simplicity as they are usually small (1px), but technically could account for them
+    const scaleX = width / rect.width;
+    const scaleY = height / rect.height;
+
     return {
-      x: (e.clientX - rect.left) / scale,
-      y: (e.clientY - rect.top) / scale
+      x: (e.clientX - rect.left) * scaleX,
+      y: (e.clientY - rect.top) * scaleY
     };
   };
 
@@ -257,27 +270,31 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
 
         if (hit) {
           foundHit = true;
-          setDraggedAnnotationId(ann.id);
+          
           if (onSelect) onSelect(ann.id);
 
-          if (ann.type === 'rect' || ann.type === 'text') {
-             setDragOffset({ x: point.x - ann.x, y: point.y - ann.y });
-          } else if (ann.type === 'circle') {
-             setDragOffset({ x: point.x - (ann as CircleAnnotation).x, y: point.y - (ann as CircleAnnotation).y });
-          } else if (ann.type === 'pen' || ann.type === 'arrow') {
-             setDragOffset({ x: point.x, y: point.y }); 
+          // Allow dragging only if NOT readOnly
+          if (!readOnly) {
+              setDraggedAnnotationId(ann.id);
+              if (ann.type === 'rect' || ann.type === 'text') {
+                 setDragOffset({ x: point.x - ann.x, y: point.y - ann.y });
+              } else if (ann.type === 'circle') {
+                 setDragOffset({ x: point.x - (ann as CircleAnnotation).x, y: point.y - (ann as CircleAnnotation).y });
+              } else if (ann.type === 'pen' || ann.type === 'arrow') {
+                 setDragOffset({ x: point.x, y: point.y }); 
+              }
           }
           break;
         }
       }
       
       if (!foundHit && onSelect) {
-          // Do not deselect here if clicking buttons/overlay, but the overlay stops propagation
-          // so this only runs if clicking the canvas background
           onSelect(null);
       }
       return;
     }
+
+    if (readOnly) return;
 
     if (tool === 'text') {
        const newAnn: TextAnnotation = {
@@ -326,6 +343,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
 
   const handleMouseMove = (e: React.MouseEvent) => {
     if (tool === 'hand') return;
+    if (readOnly) return; // No dragging or drawing in readOnly
 
     const point = getCanvasPoint(e);
 
@@ -416,6 +434,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
   let cursor = 'cursor-crosshair';
   if (tool === 'select') cursor = 'cursor-default';
   if (tool === 'hand') cursor = 'cursor-grab active:cursor-grabbing';
+  if (readOnly) cursor = 'cursor-default';
 
   // Calculate overlay position for selected annotation
   const getSelectedAnnotationBounds = () => {
@@ -483,16 +502,18 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
             onMouseLeave={handleMouseUp}
         />
         
-        {/* Context Menu Overlay */}
-        {selectedId && selectedBounds && (
+        {/* Context Menu Overlay - Only if not ReadOnly */}
+        {selectedId && selectedBounds && !readOnly && (
             <div 
                 className="absolute flex items-center gap-1 bg-gray-900 border border-gray-600 p-1 rounded-lg shadow-xl z-10 animate-in zoom-in-95 duration-150"
                 style={{
+                    // Use scale passed via props for visual overlay positioning, 
+                    // assuming App.tsx renders with that scale. 
                     left: Math.max(0, selectedBounds.x * scale),
-                    top: Math.max(0, (selectedBounds.y * scale) - 45), // Position above
-                    transform: 'translateY(0)' // Reset transform
+                    top: Math.max(0, (selectedBounds.y * scale) - 45), 
+                    transform: 'translateY(0)' 
                 }}
-                onMouseDown={(e) => e.stopPropagation()} // Prevent canvas drag when clicking menu
+                onMouseDown={(e) => e.stopPropagation()} 
             >
                 <button 
                     onClick={() => onEdit && onEdit(selectedId)}

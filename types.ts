@@ -3,6 +3,8 @@ import React from 'react';
 
 export type ToolType = 'select' | 'rect' | 'circle' | 'pen' | 'text' | 'hand' | 'arrow';
 
+export type SmartDocMode = 'full' | 'edit' | 'viewonly';
+
 export interface Point {
   x: number;
   y: number;
@@ -89,6 +91,11 @@ export interface SmartDocEvents {
   onAnnotationDelete?: (id: string) => void;
   onClearAnnotations?: () => void;
   /**
+   * Triggered when a new photo is captured via the Camera.
+   * Returns the Base64 data URL of the captured image.
+   */
+  onPhotoAdd?: (dataUrl: string) => void;
+  /**
    * Triggered when the Save button is clicked.
    * If defined, the default JSON download is prevented, and data is passed here instead.
    */
@@ -110,6 +117,12 @@ export interface SmartDocConfig {
   hideLoadJsonBtn?: boolean;
   defaultLayout?: 'sidebar' | 'bottom'; // Layout preference
   
+  // New Options
+  mode?: SmartDocMode; // 'full' | 'edit' | 'viewonly'
+  defaultTool?: ToolType; 
+  hideCameraBtn?: boolean;
+  showThumbnails?: boolean; // Initial state
+
   // Styling
   styleConfig?: SmartDocStyleConfig;
 }

@@ -2,9 +2,11 @@
 import React, { useState, useEffect, useRef, useCallback, useImperativeHandle, forwardRef } from 'react';
 import AnnotationLayer from './components/AnnotationLayer';
 import Toolbar from './components/Toolbar';
+import CameraModal from './components/CameraModal';
+import ThumbnailPanel from './components/ThumbnailPanel';
 import { Annotation, ToolType, SmartDocProps, TextAnnotation, SmartDocHandle, PageData } from './types';
 import { analyzeImageForAnnotations } from './services/geminiService';
-import { Info, MessageSquare, Trash2, X, Check, ChevronLeft, ChevronRight, Loader2, AlertTriangle, ListChecks, Activity, LayoutTemplate, PanelRightClose, PanelRightOpen, MapPin, Type } from 'lucide-react';
+import { Info, MessageSquare, Trash2, X, Check, ChevronLeft, ChevronRight, Loader2, AlertTriangle, ListChecks, Activity, LayoutTemplate, PanelRightClose, PanelRightOpen, MapPin, Type, Camera, Menu } from 'lucide-react';
 import { REASON_CODES, SEVERITY_COLORS, STATUS_OPTIONS } from './constants';
 import * as pdfjsLib from 'pdfjs-dist';
 
@@ -30,6 +32,7 @@ const PageRenderer: React.FC<{
   currentColor: string;
   onDelete: (id: string) => void;
   onEdit: (id: string) => void;
+  readOnly?: boolean;
 }> = ({
   page,
   scale,
@@ -46,7 +49,8 @@ const PageRenderer: React.FC<{
   reasonCode,
   currentColor,
   onDelete,
-  onEdit
+  onEdit,
+  readOnly
 }) => {
   const [bgImage, setBgImage] = useState<HTMLImageElement | null>(null);
   const [isRendering, setIsRendering] = useState(false);
@@ -99,7 +103,7 @@ const PageRenderer: React.FC<{
       style={{ 
         width: page.width * scale, 
         height: page.height * scale,
-        maxWidth: '100%'
+        // Removed maxWidth: '100%' to ensure correct scaling logic during zoom
       }}
       id={`page-${page.pageNumber}`}
     >
@@ -134,13 +138,14 @@ const PageRenderer: React.FC<{
           currentColor={currentColor}
           onDelete={onDelete}
           onEdit={onEdit}
+          readOnly={readOnly}
       />
     </div>
   );
 };
 
 
-const CommentModal: React.FC<any> = ({ isOpen, onClose, onSave, onDelete, initialData, severityOptions, reasonCodeOptions, statusOptions }) => {
+const CommentModal: React.FC<any> = ({ isOpen, onClose, onSave, onDelete, initialData, severityOptions, reasonCodeOptions, statusOptions, readOnly }) => {
     const [formData, setFormData] = useState(initialData);
     const commentInputRef = useRef<HTMLTextAreaElement>(null);
     const severityLevels = Object.keys(severityOptions).map(Number).sort((a: number, b: number) => a - b);
@@ -149,13 +154,15 @@ const CommentModal: React.FC<any> = ({ isOpen, onClose, onSave, onDelete, initia
       if (isOpen) {
           setFormData(initialData);
           setTimeout(() => {
-             commentInputRef.current?.focus();
-             if (initialData.type === 'text') {
-                 commentInputRef.current?.select();
+             if (!readOnly) {
+                commentInputRef.current?.focus();
+                if (initialData.type === 'text') {
+                    commentInputRef.current?.select();
+                }
              }
           }, 100);
       }
-    }, [isOpen, initialData]);
+    }, [isOpen, initialData, readOnly]);
   
     if (!isOpen) return null;
   
@@ -182,12 +189,13 @@ const CommentModal: React.FC<any> = ({ isOpen, onClose, onSave, onDelete, initia
                       {severityLevels.map((s: number) => (
                           <button
                               key={s}
+                              disabled={readOnly}
                               onClick={() => setFormData((prev:any) => ({ ...prev, severity: s }))}
                               className={`flex-1 py-2 rounded-md text-sm font-bold border transition-all ${
                                   formData.severity === s 
                                   ? 'border-white shadow-lg' 
                                   : 'border-transparent opacity-50 hover:opacity-100'
-                              }`}
+                              } ${readOnly ? 'cursor-default opacity-80' : ''}`}
                               style={{ 
                                   backgroundColor: severityOptions[s],
                                   color: s === 2 ? 'black' : 'white'
@@ -206,8 +214,9 @@ const CommentModal: React.FC<any> = ({ isOpen, onClose, onSave, onDelete, initia
                       </label>
                       <select 
                           value={formData.reasonCode}
+                          disabled={readOnly}
                           onChange={(e) => setFormData((prev:any) => ({ ...prev, reasonCode: e.target.value }))}
-                          className="w-full bg-gray-900 border border-gray-600 text-white text-sm rounded-lg block p-2"
+                          className="w-full bg-gray-900 border border-gray-600 text-white text-sm rounded-lg block p-2 disabled:opacity-70"
                       >
                           {reasonCodeOptions.map((code: string) => (
                               <option key={code} value={code}>{code}</option>
@@ -221,8 +230,9 @@ const CommentModal: React.FC<any> = ({ isOpen, onClose, onSave, onDelete, initia
                       </label>
                       <select 
                           value={formData.status}
+                          disabled={readOnly && formData.status !== 'New'} // Allow changing status only if specifically allowed, but for now readOnly locks all
                           onChange={(e) => setFormData((prev:any) => ({ ...prev, status: e.target.value }))}
-                          className="w-full bg-gray-900 border border-gray-600 text-white text-sm rounded-lg block p-2"
+                          className="w-full bg-gray-900 border border-gray-600 text-white text-sm rounded-lg block p-2 disabled:opacity-70"
                       >
                           {statusOptions.map((status: string) => (
                               <option key={status} value={status}>{status}</option>
@@ -237,7 +247,8 @@ const CommentModal: React.FC<any> = ({ isOpen, onClose, onSave, onDelete, initia
                   </label>
                   <textarea
                       ref={commentInputRef}
-                      className="w-full h-24 bg-gray-900 border border-gray-700 rounded-lg p-3 text-gray-200 resize-none placeholder-gray-600 text-sm"
+                      disabled={readOnly}
+                      className="w-full h-24 bg-gray-900 border border-gray-700 rounded-lg p-3 text-gray-200 resize-none placeholder-gray-600 text-sm disabled:opacity-70"
                       placeholder={initialData.type === 'text' ? "Enter text content..." : "Enter your comment here..."}
                       value={initialData.type === 'text' ? formData.text : formData.comment}
                       onChange={(e) => {
@@ -248,7 +259,7 @@ const CommentModal: React.FC<any> = ({ isOpen, onClose, onSave, onDelete, initia
                           }))
                       }}
                       onKeyDown={(e) => {
-                          if (e.key === 'Enter' && !e.shiftKey) {
+                          if (e.key === 'Enter' && !e.shiftKey && !readOnly) {
                               e.preventDefault();
                               onSave(formData);
                           }
@@ -258,7 +269,7 @@ const CommentModal: React.FC<any> = ({ isOpen, onClose, onSave, onDelete, initia
               
             <div className="flex items-center justify-between pt-2 border-t border-gray-700 mt-4">
                <div>
-                  {!initialData.isNew && onDelete && (
+                  {!initialData.isNew && onDelete && !readOnly && (
                       <button 
                         onClick={() => {
                              if(window.confirm("Are you sure you want to delete this annotation?")) onDelete();
@@ -272,15 +283,17 @@ const CommentModal: React.FC<any> = ({ isOpen, onClose, onSave, onDelete, initia
                </div>
                <div className="flex gap-2">
                     <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-300 hover:bg-gray-700 rounded-lg transition-colors">
-                        Cancel
+                        {readOnly ? 'Close' : 'Cancel'}
                     </button>
-                    <button 
-                        onClick={() => onSave(formData)} 
-                        className="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center gap-2"
-                    >
-                        <Check className="w-4 h-4" />
-                        Save
-                    </button>
+                    {!readOnly && (
+                        <button 
+                            onClick={() => onSave(formData)} 
+                            className="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center gap-2"
+                        >
+                            <Check className="w-4 h-4" />
+                            Save
+                        </button>
+                    )}
                </div>
             </div>
           </div>
@@ -298,16 +311,20 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
     hideLoadFileBtn,
     hideSaveJsonBtn,
     hideLoadJsonBtn,
-    defaultLayout = 'sidebar',
+    defaultLayout = 'bottom',
     styleConfig,
-    events
+    events,
+    mode = 'full',
+    defaultTool = 'arrow',
+    hideCameraBtn = false,
+    showThumbnails: initialShowThumbnails = true,
 }, ref) => {
   // Application State
   const [pages, setPages] = useState<PageData[]>([]);
   const [annotations, setAnnotations] = useState<Annotation[]>(initialAnnotations);
   
   // Interaction State
-  const [tool, setTool] = useState<ToolType>('arrow'); 
+  const [tool, setTool] = useState<ToolType>(defaultTool); 
   const [strokeWidth, setStrokeWidth] = useState<number>(4);
   const [fontSize, setFontSize] = useState<number>(20);
   const [scale, setScale] = useState<number>(1);
@@ -331,6 +348,12 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
   const [showRightPanel, setShowRightPanel] = useState<boolean>(false);
   const [layoutMode, setLayoutMode] = useState<'sidebar' | 'bottom'>(defaultLayout);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  
+  // New UI Features
+  const [showThumbnails, setShowThumbnails] = useState<boolean>(initialShowThumbnails);
+  const [showCamera, setShowCamera] = useState<boolean>(false);
   
   // Fullscreen State
   const containerRef = useRef<HTMLDivElement>(null);
@@ -344,6 +367,43 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
 
   const activeColor = severityOptions[severity] || severityOptions[4];
 
+  // Derived Mode Properties
+  const isViewOnly = mode === 'viewonly';
+  const isEditMode = mode === 'edit';
+  // Allow drawing only in full mode
+  const canDraw = mode === 'full';
+  // Allow editing existing annotations in full and edit modes
+  const canEdit = mode === 'full' || mode === 'edit';
+  
+  // Effective ReadOnly passed to layers/modals
+  // AnnotationLayer is readOnly if we are in viewonly OR if we are in edit mode (cannot drag/resize geometries usually, or we can allow it? 
+  // Let's assume Edit Mode allows metadata edit but geometry edit is debatable. 
+  // For simplicity, let's say AnnotationLayer is readOnly in 'viewonly'. In 'edit', you can select but not draw new.)
+  // Actually, AnnotationLayer handles 'tool' logic. If tool is 'select', we can move things.
+  // If we want to prevent moving in 'edit' mode, we'd need a stricter flag. 
+  // Based on prompt "edit: can change status... cannot add new", usually means geometry is locked too? 
+  // Let's assume geometry is editable in 'edit' mode for now, just no new tools.
+  const layerReadOnly = isViewOnly; 
+  
+  // Modal ReadOnly: In ViewOnly, modal is read only. In Edit/Full, it is editable.
+  const modalReadOnly = isViewOnly;
+
+  // Detect Mobile
+  useEffect(() => {
+    const checkMobile = () => {
+        const mobile = window.innerWidth < 768;
+        setIsMobile(mobile);
+        // If mobile, default to bottom layout if not specified
+        if (mobile && defaultLayout === 'sidebar') {
+           // Optional: force bottom layout on mobile init? 
+           // Leaving as is to respect props, but allowing switching.
+        }
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
   // Logic to process files (Shared between drag-drop, input, and imperative call)
   const processFiles = useCallback(async (files: FileList | File[], shouldResetAnnotations = true) => {
       if (!files || files.length === 0) return;
@@ -356,13 +416,16 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
       
       setSelectedAnnotationId(null);
       setIsLoadingFile(true);
-      setAutoFit(true);
-      setPages([]);
+      if (shouldResetAnnotations) {
+          setAutoFit(true);
+          setPages([]);
+      }
       
       const fileList = Array.isArray(files) ? files : Array.from(files);
-      setFileName(fileList.length > 1 ? `${fileList.length} Files` : fileList[0].name);
+      setFileName(prev => shouldResetAnnotations ? (fileList.length > 1 ? `${fileList.length} Files` : fileList[0].name) : `Mixed Content`);
 
       const newPages: PageData[] = [];
+      const startPageNum = shouldResetAnnotations ? 0 : pages.length;
 
       try {
           // Process all files
@@ -381,7 +444,7 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
                       
                       newPages.push({
                           id: `${file.name}-p${j}-${Math.random()}`,
-                          pageNumber: newPages.length + 1,
+                          pageNumber: startPageNum + newPages.length + 1,
                           width: viewport.width,
                           height: viewport.height,
                           pdfPage: page
@@ -402,23 +465,25 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
 
                   newPages.push({
                       id: `${file.name}-${Math.random()}`,
-                      pageNumber: newPages.length + 1,
+                      pageNumber: startPageNum + newPages.length + 1,
                       width: dims.w,
                       height: dims.h,
                       imageSrc: src
                   });
               } else {
                   console.warn(`Unsupported file type: ${file.type}`);
-                  alert(`File type not supported: ${file.name}\nPlease upload Images or PDF.`);
+                  // alert(`File type not supported: ${file.name}\nPlease upload Images or PDF.`);
               }
           }
           
-          setPages(newPages);
-          
-          // Initial fit for first page
-          if (newPages.length > 0) {
-              const fitScale = calculateBestFit(newPages[0].width, newPages[0].height);
-              setScale(fitScale);
+          if (shouldResetAnnotations) {
+              setPages(newPages);
+              if (newPages.length > 0) {
+                  const fitScale = calculateBestFit(newPages[0].width, newPages[0].height);
+                  setScale(fitScale);
+              }
+          } else {
+              setPages(prev => [...prev, ...newPages]);
           }
           
           events?.onDocumentReady?.();
@@ -429,7 +494,7 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
       } finally {
           setIsLoadingFile(false);
       }
-  }, [events]);
+  }, [events, pages, setScale]); // Added dependencies
 
   const loadDocumentsFromUrls = useCallback(async (urls: string | string[], shouldResetAnnotations = true) => {
         setIsLoadingFile(true);
@@ -451,6 +516,39 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
             setIsLoadingFile(false);
         }
   }, [processFiles]);
+
+  const handleCameraCapture = async (imageDataUrl: string) => {
+      // Create a simplified file-like object processing
+      setIsLoadingFile(true);
+      try {
+        const dims = await new Promise<{w: number, h: number}>((resolve) => {
+            const img = new Image();
+            img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+            img.src = imageDataUrl;
+        });
+
+        const newPage: PageData = {
+            id: `camera-capture-${Date.now()}`,
+            pageNumber: pages.length + 1,
+            width: dims.w,
+            height: dims.h,
+            imageSrc: imageDataUrl
+        };
+
+        setPages(prev => [...prev, newPage]);
+        
+        // Trigger Event Callback
+        events?.onPhotoAdd?.(imageDataUrl);
+
+        // Scroll to the new page
+        setTimeout(() => scrollToPage(pages.length), 100);
+
+      } catch (e) {
+          console.error("Failed to process camera image", e);
+      } finally {
+          setIsLoadingFile(false);
+      }
+  };
 
   // Expose Imperative API
   useImperativeHandle(ref, () => ({
@@ -607,7 +705,7 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
   // Keyboard shortcut for deleting annotations
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-        if ((e.key === 'Delete' || e.key === 'Backspace') && selectedAnnotationId && !showCommentModal) {
+        if ((e.key === 'Delete' || e.key === 'Backspace') && selectedAnnotationId && !showCommentModal && !isViewOnly) {
             // Check if we are focusing on an input, if so, don't delete annotation
             const activeTag = document.activeElement?.tagName.toLowerCase();
             if (activeTag === 'input' || activeTag === 'textarea') return;
@@ -618,7 +716,7 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
     
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedAnnotationId, showCommentModal]);
+  }, [selectedAnnotationId, showCommentModal, isViewOnly]);
 
   // Update selection properties
   useEffect(() => {
@@ -632,6 +730,7 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
   }, [selectedAnnotationId, annotations]);
 
   const updateSelectedSeverity = (newSeverity: number) => {
+    if (isViewOnly) return;
     setSeverity(newSeverity);
     if (selectedAnnotationId) {
       let updatedAnn: Annotation | undefined;
@@ -651,6 +750,7 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
   };
 
   const updateSelectedReasonCode = (newCode: string) => {
+    if (isViewOnly) return;
     setReasonCode(newCode);
     if (selectedAnnotationId) {
       let updatedAnn: Annotation | undefined;
@@ -775,6 +875,7 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
   };
 
   const deleteAnnotation = (id: string) => {
+      if (isViewOnly) return;
       setAnnotations(prev => prev.filter(a => a.id !== id));
       if (selectedAnnotationId === id) setSelectedAnnotationId(null);
       events?.onAnnotationDelete?.(id);
@@ -859,54 +960,116 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
   return (
     <div ref={containerRef} className="flex w-full h-full bg-gray-900 text-gray-100 font-sans overflow-hidden" style={styleConfig?.container}>
       
+      {/* Sidebar Layout - Render as Drawer on Mobile */}
       {layoutMode === 'sidebar' && (
-          <Toolbar 
-            currentTool={tool}
-            setTool={(t) => { setTool(t); if (t !== 'select') setSelectedAnnotationId(null); }}
-            currentStrokeWidth={strokeWidth}
-            setStrokeWidth={setStrokeWidth}
-            currentFontSize={fontSize}
-            setFontSize={setFontSize}
-            onClear={handleClear}
-            onSave={handleSave}
-            onLoad={handleLoad}
-            onFileChange={handleFileChange}
-            onAnalyze={handleAnalyze}
-            isAnalyzing={isAnalyzing}
-            hasFile={pages.length > 0}
-            scale={scale}
-            setScale={(newScale) => { setAutoFit(false); setScale(newScale); }}
-            onFitToScreen={handleFitToScreen}
-            isFullscreen={isFullscreen}
-            onToggleFullscreen={toggleFullscreen}
-            selectedAnnotationId={selectedAnnotationId}
-            onDeleteSelected={() => selectedAnnotationId && deleteAnnotation(selectedAnnotationId)}
-            onEditSelected={() => setShowCommentModal(true)}
-            severity={severity}
-            setSeverity={updateSelectedSeverity}
-            reasonCode={reasonCode}
-            setReasonCode={updateSelectedReasonCode}
-            hideLoadFileBtn={!!documentSrc || hideLoadFileBtn}
-            hideSaveJsonBtn={hideSaveJsonBtn}
-            hideLoadJsonBtn={hideLoadJsonBtn}
-            customSeverityColors={severityOptions}
-            customReasonCodes={reasonCodeOptions}
-            style={styleConfig?.toolbar}
-            variant='sidebar'
+        <>
+            {/* Backdrop for Mobile Drawer */}
+            {isMobile && mobileMenuOpen && (
+                <div 
+                    className="fixed inset-0 top-14 bg-black/60 z-40 backdrop-blur-sm"
+                    onClick={() => setMobileMenuOpen(false)}
+                ></div>
+            )}
+            
+            {/* Sidebar Content */}
+            <div 
+                className={`
+                    ${isMobile ? 'fixed left-0 bottom-0 top-14 z-50 transition-transform duration-300 shadow-2xl w-72 border-r border-gray-700 bg-gray-800' : 'relative z-10'}
+                    ${isMobile && !mobileMenuOpen ? '-translate-x-full' : 'translate-x-0'}
+                `}
+            >
+                <Toolbar 
+                    currentTool={tool}
+                    setTool={(t) => { setTool(t); if (t !== 'select') setSelectedAnnotationId(null); if(isMobile) setMobileMenuOpen(false); }}
+                    currentStrokeWidth={strokeWidth}
+                    setStrokeWidth={setStrokeWidth}
+                    currentFontSize={fontSize}
+                    setFontSize={setFontSize}
+                    onClear={handleClear}
+                    onSave={handleSave}
+                    onLoad={handleLoad}
+                    onFileChange={handleFileChange}
+                    onAnalyze={handleAnalyze}
+                    isAnalyzing={isAnalyzing}
+                    hasFile={pages.length > 0}
+                    scale={scale}
+                    setScale={(newScale) => { setAutoFit(false); setScale(newScale); }}
+                    onFitToScreen={handleFitToScreen}
+                    isFullscreen={isFullscreen}
+                    onToggleFullscreen={toggleFullscreen}
+                    selectedAnnotationId={selectedAnnotationId}
+                    onDeleteSelected={() => selectedAnnotationId && deleteAnnotation(selectedAnnotationId)}
+                    onEditSelected={() => setShowCommentModal(true)}
+                    severity={severity}
+                    setSeverity={updateSelectedSeverity}
+                    reasonCode={reasonCode}
+                    setReasonCode={updateSelectedReasonCode}
+                    hideLoadFileBtn={!!documentSrc || hideLoadFileBtn}
+                    hideSaveJsonBtn={hideSaveJsonBtn}
+                    hideLoadJsonBtn={hideLoadJsonBtn}
+                    customSeverityColors={severityOptions}
+                    customReasonCodes={reasonCodeOptions}
+                    style={styleConfig?.toolbar}
+                    variant='sidebar'
+                    mode={mode}
+                    
+                    // Camera & Thumbnails Props
+                    showThumbnails={showThumbnails}
+                    onToggleThumbnails={() => { setShowThumbnails(!showThumbnails); if(isMobile) setMobileMenuOpen(false); }}
+
+                    // Mobile Drawer Close: Switch to bottom toolbar on close
+                    onClose={() => {
+                        setMobileMenuOpen(false);
+                        if(isMobile) setLayoutMode('bottom');
+                    }}
+                    isMobile={isMobile}
+                />
+            </div>
+        </>
+      )}
+
+      {/* Thumbnail Panel - Left side (between toolbar and workspace) */}
+      {showThumbnails && pages.length > 0 && (
+          <ThumbnailPanel 
+            pages={pages}
+            activePageIndex={activePageIndex}
+            onPageSelect={(idx) => scrollToPage(idx)}
           />
       )}
 
       <div className="flex-1 flex flex-col relative overflow-hidden" style={styleConfig?.layout}>
         
         {/* Top Header */}
-        <div className="h-14 bg-gray-800 border-b border-gray-700 flex items-center justify-between px-6 shadow-md z-10 shrink-0">
-            <div className="flex items-center gap-3">
+        <div className="h-14 bg-gray-800 border-b border-gray-700 flex items-center justify-between px-4 shadow-md z-10 shrink-0">
+            <div className="flex items-center gap-2">
+               {/* Mobile Menu Button - Always show on mobile to allow switching to Sidebar/Options */}
+               {isMobile && (
+                   <button 
+                        onClick={() => {
+                            if (layoutMode === 'bottom') {
+                                setLayoutMode('sidebar');
+                                // slight delay to ensure render before sliding in
+                                setTimeout(() => setMobileMenuOpen(true), 10);
+                            } else {
+                                setMobileMenuOpen(!mobileMenuOpen);
+                            }
+                        }}
+                        className="p-2 -ml-2 rounded-lg text-gray-300 hover:bg-gray-700"
+                    >
+                        <Menu className="w-6 h-6" />
+                   </button>
+               )}
+
                <span className="font-bold text-lg text-blue-400">SmartDoc</span>
-               <span className="text-gray-500 text-sm">|</span>
-               <span className="text-gray-300 text-sm font-medium truncate max-w-xs">{fileName}</span>
+               {!isMobile && (
+                   <>
+                    <span className="text-gray-500 text-sm">|</span>
+                    <span className="text-gray-300 text-sm font-medium truncate max-w-xs">{fileName}</span>
+                   </>
+               )}
             </div>
             
-            {pages.length > 0 && (
+            {pages.length > 0 && !isMobile && (
                 <div className="flex items-center gap-2 bg-gray-900 rounded-lg p-1 border border-gray-700">
                     <button 
                         onClick={() => scrollToPage(activePageIndex - 1)}
@@ -928,9 +1091,31 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
                 </div>
             )}
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 md:gap-3">
+               
+               {/* Camera Button in Header - Hidden if disabled via config or mode */}
+               {!hideCameraBtn && !isViewOnly && (
+                   <button 
+                     onClick={() => setShowCamera(true)}
+                     className="p-2 rounded-md hover:bg-gray-700 transition-colors text-gray-400"
+                     title="Add Photo"
+                   >
+                       <Camera className="w-5 h-5" />
+                   </button>
+               )}
+
+               <div className="w-px h-6 bg-gray-700 mx-1 hidden md:block"></div>
+
+               {/* Toggle Layout Button - Available on Mobile now */}
                <button 
-                onClick={() => setLayoutMode(m => m === 'sidebar' ? 'bottom' : 'sidebar')}
+                onClick={() => {
+                    const newMode = layoutMode === 'sidebar' ? 'bottom' : 'sidebar';
+                    setLayoutMode(newMode);
+                    // If switching to sidebar on mobile, open the drawer
+                    if (newMode === 'sidebar' && isMobile) {
+                        setTimeout(() => setMobileMenuOpen(true), 10);
+                    }
+                }}
                 className="p-2 rounded-md hover:bg-gray-700 transition-colors text-gray-400"
                 title="Toggle Layout"
                >
@@ -950,7 +1135,7 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
         {/* Workspace - Continuous Scroll */}
         <div 
              ref={workspaceRef}
-             className={`flex-1 relative bg-gray-900/50 overflow-auto flex flex-col items-center p-8 gap-8 min-h-0 ${tool === 'hand' ? 'cursor-grab active:cursor-grabbing' : ''}`}
+             className={`flex-1 relative bg-gray-900/50 overflow-auto flex flex-col items-center p-4 md:p-8 gap-4 md:gap-8 min-h-0 ${tool === 'hand' ? 'cursor-grab active:cursor-grabbing' : ''}`}
              style={{ 
                  backgroundImage: 'radial-gradient(#374151 1px, transparent 1px)', 
                  backgroundSize: '20px 20px',
@@ -963,7 +1148,7 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
              onScroll={handleScroll}
         >
             {pages.length === 0 && !isLoadingFile ? (
-                <div className="text-center text-gray-500 my-auto mx-auto">
+                <div className="text-center text-gray-500 my-auto mx-auto p-4">
                     <Info className="w-16 h-16 mx-auto mb-4 opacity-50" />
                     <h2 className="text-xl font-semibold mb-2">No Document Loaded</h2>
                     <p className="max-w-md mx-auto">Upload images or a PDF to start annotating.</p>
@@ -985,6 +1170,7 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
                         // Filter annotations for this page
                         annotations={annotations.filter(a => (a.page || 1) === page.pageNumber)}
                         onAnnotationsChange={(updatedPageAnns) => {
+                             if(isViewOnly) return;
                              setAnnotations(prev => {
                                  // Remove old anns for this page, add updated ones
                                  const others = prev.filter(a => (a.page || 1) !== page.pageNumber);
@@ -992,12 +1178,16 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
                              });
                         }}
                         onAnnotationCreated={(ann) => {
+                            if (!canDraw) return;
                             setSelectedAnnotationId(ann.id);
                             setNewAnnotationId(ann.id); 
                             setShowCommentModal(true);
                             events?.onAnnotationAdd?.(ann);
                         }}
-                        onAnnotationUpdate={(ann) => events?.onAnnotationUpdate?.(ann)}
+                        onAnnotationUpdate={(ann) => {
+                            if(!canEdit) return;
+                            events?.onAnnotationUpdate?.(ann);
+                        }}
                         onSelect={setSelectedAnnotationId}
                         selectedId={selectedAnnotationId}
                         severity={severity}
@@ -1006,12 +1196,13 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
                         currentColor={activeColor}
                         onDelete={(id) => deleteAnnotation(id)}
                         onEdit={() => setShowCommentModal(true)}
+                        readOnly={layerReadOnly}
                     />
                 ))
             )}
         </div>
 
-        {layoutMode === 'bottom' && (
+        {layoutMode === 'bottom' && !showCamera && (
                 <Toolbar 
                     currentTool={tool}
                     setTool={(t) => { setTool(t); if (t !== 'select') setSelectedAnnotationId(null); }}
@@ -1042,19 +1233,30 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
                     customReasonCodes={reasonCodeOptions}
                     style={styleConfig?.toolbar}
                     variant='bottom'
+                    mode={mode}
+
+                    // Camera & Thumbnails Props (Bottom toolbar needs them too)
+                    showThumbnails={showThumbnails}
+                    onToggleThumbnails={() => setShowThumbnails(!showThumbnails)}
                 />
             )}
 
         {/* Right Panel: Annotation List */}
         {showRightPanel && (
-            <div className="absolute top-14 right-0 bottom-0 w-80 bg-gray-900 border-l border-gray-700 flex flex-col shadow-2xl z-20">
-                <div className="p-4 border-b border-gray-800">
+            <div className={`
+                fixed inset-y-0 right-0 z-40 bg-gray-900 border-l border-gray-700 flex flex-col shadow-2xl transition-transform duration-300 w-80 
+                ${isMobile ? 'top-14' : 'top-14'}
+            `}>
+                <div className="p-4 border-b border-gray-800 flex justify-between items-center">
                      <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2">
                          <ListChecks className="w-4 h-4" />
                          Annotations ({annotations.length})
                      </h3>
+                     {isMobile && (
+                         <button onClick={() => setShowRightPanel(false)}><X className="w-5 h-5 text-gray-500" /></button>
+                     )}
                 </div>
-                <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                <div className="flex-1 overflow-y-auto p-4 space-y-3 pb-20">
                     {annotations.length === 0 ? (
                         <div className="text-center text-gray-500 py-10 text-sm">No annotations yet.</div>
                     ) : (
@@ -1064,6 +1266,7 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
                                 onClick={() => {
                                     scrollToPage((ann.page || 1) - 1);
                                     setSelectedAnnotationId(ann.id);
+                                    if(isMobile) setShowRightPanel(false);
                                 }}
                                 className={`p-3 rounded-lg border cursor-pointer transition-all hover:bg-gray-800 ${
                                     selectedAnnotationId === ann.id 
@@ -1122,6 +1325,14 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
             severityOptions={severityOptions}
             reasonCodeOptions={reasonCodeOptions}
             statusOptions={statusOptions}
+            readOnly={modalReadOnly}
+        />
+
+        {/* Camera Modal */}
+        <CameraModal 
+            isOpen={showCamera}
+            onClose={() => setShowCamera(false)}
+            onCapture={handleCameraCapture}
         />
 
       </div>

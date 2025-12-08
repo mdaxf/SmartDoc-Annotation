@@ -1,5 +1,7 @@
 {
   "name": "SmartDoc Annotator",
   "description": "A React library and application for loading images and documents, adding rich annotations (draw, shapes, text), saving/loading via JSON, and leveraging Gemini Vision for auto-annotation.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [
+    "camera"
+  ]
 }
