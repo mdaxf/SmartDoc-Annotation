@@ -17,7 +17,7 @@ interface AnnotationLayerProps {
   onAnnotationUpdate?: (annotation: Annotation) => void; 
   onSelect?: (id: string | null) => void;
   selectedId?: string | null;
-  backgroundImage: HTMLImageElement | null;
+  // backgroundImage prop removed - handled in parent for performance
   scale: number;
   page: number;
   
@@ -25,7 +25,6 @@ interface AnnotationLayerProps {
   reasonCode: string;
   currentColor: string;
 
-  // New actions for overlay buttons
   onDelete?: (id: string) => void;
   onEdit?: (id: string) => void;
   
@@ -45,7 +44,6 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
   onAnnotationUpdate,
   onSelect,
   selectedId,
-  backgroundImage,
   scale,
   page,
   severity,
@@ -61,32 +59,29 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
   const [currentAnnotation, setCurrentAnnotation] = useState<Annotation | null>(null);
   const [draggedAnnotationId, setDraggedAnnotationId] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState<Point>({ x: 0, y: 0 });
+  const requestRef = useRef<number>(0);
 
-  // High resolution multiplier to ensure sharp text and images on all displays
-  // This matches the high-quality PDF render scale (3.0) set in App.tsx
-  const renderScale = 3; 
+  // Dynamic High DPI scaling
+  // Cap at 3x to prevent massive canvas memory usage on high-density mobile screens
+  const renderScale = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 3) : 1;
 
   const generateId = () => Math.random().toString(36).substr(2, 9);
 
   const renderCanvas = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { alpha: true }); // optimize for transparency
     if (!ctx) return;
 
     // Clear the full high-res buffer
     ctx.clearRect(0, 0, width * renderScale, height * renderScale);
     ctx.save();
     
-    // Scale context to match logical coordinates (1 unit = renderScale pixels)
+    // Scale context to match logical coordinates
     ctx.scale(renderScale, renderScale);
     
-    if (backgroundImage) {
-      // Draw image to fill logical bounds (0,0 -> width,height)
-      // The context scale handles the upscaling to the high-res buffer
-      // If backgroundImage is high-res (e.g. from PDF renderer), this preserves detail
-      ctx.drawImage(backgroundImage, 0, 0, width, height);
-    }
+    // NOTE: Background image is now rendered via DOM/CSS in PageRenderer for performance.
+    // We only draw vector shapes here.
 
     [...annotations, currentAnnotation].forEach((ann) => {
       if (!ann) return;
@@ -98,7 +93,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
       
       if (isSelected) {
           ctx.shadowColor = 'rgba(0, 255, 255, 0.8)';
-          ctx.shadowBlur = 20;
+          ctx.shadowBlur = 10; // Reduced blur radius for perf
           ctx.strokeStyle = '#00ffff';
       } else {
           ctx.strokeStyle = ann.color;
@@ -136,6 +131,8 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
         if (p.points.length > 0) {
           ctx.beginPath();
           ctx.moveTo(p.points[0].x, p.points[0].y);
+          // Optimize large paths: only draw if visible? (Future)
+          // Basic reduction: skip redundant points?
           for (let i = 1; i < p.points.length; i++) {
             ctx.lineTo(p.points[i].x, p.points[i].y);
           }
@@ -145,7 +142,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
       } else if (ann.type === 'arrow') {
         const a = ann as ArrowAnnotation;
         const [start, end] = a.points;
-        const headLength = 15 + (a.strokeWidth * 1.5); // Dynamic head size
+        const headLength = 15 + (a.strokeWidth * 1.5); 
         const dx = end.x - start.x;
         const dy = end.y - start.y;
         const angle = Math.atan2(dy, dx);
@@ -172,7 +169,6 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
         const lines = t.text.split('\n');
         const lineHeight = t.fontSize * 1.2;
         
-        // Prepare styles for halo effect
         ctx.lineJoin = "round";
         ctx.miterLimit = 2;
         ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
@@ -180,11 +176,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
 
         lines.forEach((line, i) => {
             const yPos = t.y + (i * lineHeight);
-            
-            // Draw Halo
             ctx.strokeText(line, t.x, yPos);
-            
-            // Draw Text
             ctx.fillStyle = isSelected ? '#00ffff' : ann.color;
             ctx.fillText(line, t.x, yPos);
         });
@@ -198,14 +190,13 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
                 if (metrics.width > maxWidth) maxWidth = metrics.width;
             });
             const totalHeight = lines.length * lineHeight;
-            
             ctx.strokeStyle = '#00ffff';
-            ctx.lineWidth = 2;
+            ctx.lineWidth = 1; // Thinner selection box
             ctx.strokeRect(t.x - 4, t.y - t.fontSize, maxWidth + 8, totalHeight + (t.fontSize * 0.2)); 
         }
       }
 
-      // Render Comment/Status Overlay (Only if NOT text annotation)
+      // Render Comment/Status Overlay
       if (ann.type !== 'text') {
           const displayContent = [
             ann.status ? `[${ann.status}]` : '',
@@ -214,20 +205,14 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
 
           if (displayContent) {
               ctx.font = "bold 14px sans-serif";
-              
               let drawX = textPos.x;
               let drawY = textPos.y - 22; 
-
-              // Draw Text with White Halo (Standard Comment Style)
               ctx.textBaseline = "middle";
-              
               ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
               ctx.lineWidth = 3;
               ctx.strokeText(displayContent, drawX, drawY);
-              
               ctx.fillStyle = ann.color;
               ctx.fillText(displayContent, drawX, drawY);
-              
               ctx.textBaseline = "alphabetic";
           }
       }
@@ -236,25 +221,20 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
     });
 
     ctx.restore();
-  }, [width, height, annotations, currentAnnotation, backgroundImage, selectedId]);
+  }, [width, height, annotations, currentAnnotation, selectedId, renderScale]); // Removed backgroundImage dependency
 
+  // Use requestAnimationFrame for smooth drawing
   useEffect(() => {
-    renderCanvas();
+    requestRef.current = requestAnimationFrame(renderCanvas);
+    return () => cancelAnimationFrame(requestRef.current);
   }, [renderCanvas]);
 
   const getCanvasPoint = (e: React.MouseEvent): Point => {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
-    
-    // Use getBoundingClientRect for precise screen coordinates
     const rect = canvas.getBoundingClientRect();
-    
-    // Coordinate mapping is based on the LOGICAL width vs VISUAL width
-    // The internal resolution (renderScale) doesn't affect this ratio
-    // because rect.width is the CSS size on screen.
     const scaleX = width / rect.width;
     const scaleY = height / rect.height;
-
     return {
       x: (e.clientX - rect.left) * scaleX,
       y: (e.clientY - rect.top) * scaleY
@@ -268,6 +248,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
 
     if (tool === 'select') {
       let foundHit = false;
+      // Reverse loop to select top-most element first
       for (let i = annotations.length - 1; i >= 0; i--) {
         const ann = annotations[i];
         let hit = false;
@@ -278,22 +259,9 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
         else if (ann.type === 'circle') hit = isPointInCircle(point, ann as CircleAnnotation);
         else if (ann.type === 'pen') hit = isPointNearPath(point, ann as PenAnnotation);
         else if (ann.type === 'arrow') hit = isPointNearLine(point, ann as ArrowAnnotation);
-        // Important: Text hit test uses context for measurement. 
-        // We must ensure the context used for measurement has the correct scale transform or font size.
-        // Since we scaled the context by renderScale, we might need to adjust or rely on `isPointInText`
-        // `isPointInText` sets `ctx.font`. If context is scaled, font might be huge if not careful.
-        // HOWEVER, `isPointInText` sets absolute font pixel size.
-        // If we pass the scaled context, we might get scaled metrics.
-        // Safest is to use a temporary unscaled context or handle logic purely mathematically if possible.
-        // For now, let's trust the hit test logic usually works with logical coords if we use a fresh context or reset transform.
         else if (ann.type === 'text' && ctx) {
              ctx.save();
-             // Reset transform for accurate logical measurement if needed, 
-             // but `isPointInText` sets font size in pixels. 
-             // If ctx is scaled 3x, drawing text size 20 draws it 60px high.
-             // measureText returns width 60px.
-             // But our `point` is in logical coords (1x). 
-             // So we actually need to measure in 1x space.
+             // Reset transform to identity to measure text in logical pixels, ignoring renderScale
              ctx.setTransform(1, 0, 0, 1, 0, 0); 
              hit = isPointInText(point, ann as TextAnnotation, ctx);
              ctx.restore();
@@ -301,10 +269,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
 
         if (hit) {
           foundHit = true;
-          
           if (onSelect) onSelect(ann.id);
-
-          // Allow dragging only if NOT readOnly
           if (!readOnly) {
               setDraggedAnnotationId(ann.id);
               if (ann.type === 'rect' || ann.type === 'text') {
@@ -376,7 +341,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
 
   const handleMouseMove = (e: React.MouseEvent) => {
     if (tool === 'hand') return;
-    if (readOnly) return; // No dragging or drawing in readOnly
+    if (readOnly) return;
 
     const point = getCanvasPoint(e);
 
@@ -469,7 +434,6 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
   if (tool === 'hand') cursor = 'cursor-grab active:cursor-grabbing';
   if (readOnly) cursor = 'cursor-default';
 
-  // Calculate overlay position for selected annotation
   const getSelectedAnnotationBounds = () => {
       const ann = annotations.find(a => a.id === selectedId);
       if (!ann) return null;
@@ -490,11 +454,10 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
           const t = ann as TextAnnotation;
           minX = t.x;
           minY = t.y - t.fontSize; 
-          // Estimate width
           const ctx = canvasRef.current?.getContext('2d');
           if (ctx) {
              ctx.save();
-             ctx.setTransform(1, 0, 0, 1, 0, 0); // Unscale for metric calc
+             ctx.setTransform(1, 0, 0, 1, 0, 0); 
              ctx.font = `${t.fontSize}px sans-serif`;
              const metrics = ctx.measureText(t.text.split('\n')[0]);
              width = metrics.width;
@@ -538,13 +501,11 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
             onMouseLeave={handleMouseUp}
         />
         
-        {/* Context Menu Overlay - Only if not ReadOnly */}
+        {/* Context Menu Overlay */}
         {selectedId && selectedBounds && !readOnly && (
             <div 
                 className="absolute flex items-center gap-1 bg-gray-900 border border-gray-600 p-1 rounded-lg shadow-xl z-20 animate-in zoom-in-95 duration-150"
                 style={{
-                    // Use scale passed via props for visual overlay positioning, 
-                    // assuming App.tsx renders with that scale. 
                     left: Math.max(0, selectedBounds.x * scale),
                     top: Math.max(0, (selectedBounds.y * scale) - 45), 
                     transform: 'translateY(0)' 
@@ -552,6 +513,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
                 onMouseDown={(e) => e.stopPropagation()} 
             >
                 <button 
+                    type="button"
                     onClick={() => onEdit && onEdit(selectedId)}
                     className="p-1.5 hover:bg-gray-700 text-blue-400 rounded-md transition-colors"
                     title="Edit"
@@ -560,6 +522,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
                 </button>
                 <div className="w-px h-4 bg-gray-700 mx-0.5"></div>
                 <button 
+                    type="button"
                     onClick={() => onDelete && onDelete(selectedId)}
                     className="p-1.5 hover:bg-red-900/50 text-red-400 rounded-md transition-colors"
                     title="Delete"
@@ -572,4 +535,4 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
   );
 };
 
-export default AnnotationLayer;
+export default React.memo(AnnotationLayer);

@@ -7,8 +7,6 @@ import path from 'path';
 export default defineConfig({
   plugins: [react()],
   define: { 
-    // Mocks process.env to avoid ReferenceError in browser environments
-    // Specific keys like process.env.API_KEY are replaced by Vite during build if defined in .env
     'process.env': {} 
   },
   build: {
@@ -21,17 +19,10 @@ export default defineConfig({
       formats: ['umd'] // UMD is best for legacy <script> tags
     },
     rollupOptions: {
-      // Ensure external dependencies are bundled OR externalized depending on need.
-      // For a "batteries-included" bundle for legacy apps, we usually bundle everything 
-      // EXCEPT maybe React itself if the host app provides it.
-      // However, for a truly standalone drop-in, we bundle React too.
+      // Ensure EVERYTHING is bundled. Empty array means nothing is external.
       external: [], 
       output: {
-        globals: {
-          // If we were externalizing react, we'd define global mapping here
-          // react: 'React',
-          // 'react-dom': 'ReactDOM'
-        }
+        globals: {}
       }
     },
     // Minify output

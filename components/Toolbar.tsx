@@ -149,6 +149,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                 {visibleTools.map((tool) => (
                     <button
                         key={tool.id}
+                        type="button"
                         onClick={() => setTool(tool.id as ToolType)}
                         className={`p-2 rounded-xl transition-all ${
                             currentTool === tool.id 
@@ -168,10 +169,10 @@ const Toolbar: React.FC<ToolbarProps> = ({
             {selectedAnnotationId && canModify && (
                 <>
                 <div className="flex items-center gap-1">
-                    <button onClick={onEditSelected} className="p-2 hover:bg-gray-700 text-blue-400 rounded-xl" title="Edit Selected">
+                    <button type="button" onClick={onEditSelected} className="p-2 hover:bg-gray-700 text-blue-400 rounded-xl" title="Edit Selected">
                         <MessageSquare className="w-5 h-5" />
                     </button>
-                    <button onClick={onDeleteSelected} className="p-2 hover:bg-red-900/50 text-red-400 rounded-xl" title="Delete Selected">
+                    <button type="button" onClick={onDeleteSelected} className="p-2 hover:bg-red-900/50 text-red-400 rounded-xl" title="Delete Selected">
                         <Trash2 className="w-5 h-5" />
                     </button>
                 </div>
@@ -182,6 +183,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
             {/* View & Navigation */}
             <div className="flex items-center gap-2">
                  <button 
+                    type="button"
                     onClick={onToggleThumbnails} 
                     className={`p-2 rounded-lg transition-colors ${showThumbnails ? 'bg-gray-700 text-white' : 'text-gray-300 hover:bg-gray-700'}`} 
                     title="Toggle Thumbnails"
@@ -189,13 +191,13 @@ const Toolbar: React.FC<ToolbarProps> = ({
                      <GalleryVertical className="w-4 h-4" />
                  </button>
                  <div className="w-px h-4 bg-gray-600 mx-1"></div>
-                 <button onClick={handleZoomOut} className="p-2 hover:bg-gray-700 rounded-lg text-gray-300">
+                 <button type="button" onClick={handleZoomOut} className="p-2 hover:bg-gray-700 rounded-lg text-gray-300">
                     <ZoomOut className="w-4 h-4" />
                 </button>
-                <button onClick={handleZoomIn} className="p-2 hover:bg-gray-700 rounded-lg text-gray-300">
+                <button type="button" onClick={handleZoomIn} className="p-2 hover:bg-gray-700 rounded-lg text-gray-300">
                     <ZoomIn className="w-4 h-4" />
                 </button>
-                <button onClick={onToggleFullscreen} className="p-2 hover:bg-gray-700 rounded-lg text-gray-300 border-l border-gray-600 ml-1" title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}>
+                <button type="button" onClick={onToggleFullscreen} className="p-2 hover:bg-gray-700 rounded-lg text-gray-300 border-l border-gray-600 ml-1" title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}>
                     {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
                 </button>
             </div>
@@ -234,7 +236,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
       {isMobile && onClose && (
            <div className="flex justify-between items-center pb-2 border-b border-gray-700">
                 <span className="text-sm font-bold text-gray-200">Menu</span>
-                <button onClick={onClose} className="p-2 hover:bg-gray-700 rounded-full text-gray-400">
+                <button type="button" onClick={onClose} className="p-2 hover:bg-gray-700 rounded-full text-gray-400">
                     <X className="w-5 h-5" />
                 </button>
            </div>
@@ -257,6 +259,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
 
             {hasFile && mode === 'full' && (
             <button
+            type="button"
             onClick={onAnalyze}
             disabled={isAnalyzing}
             className={`flex items-center justify-center w-full px-4 py-3 rounded-lg text-sm font-semibold transition-all ${
@@ -279,6 +282,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
          <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">View</h3>
          <div className="flex items-center justify-between bg-gray-700 rounded-lg p-1">
             <button 
+                type="button"
                 onClick={onToggleThumbnails} 
                 className={`p-2 rounded text-gray-300 ${showThumbnails ? 'bg-gray-600' : 'hover:bg-gray-600'}`} 
                 title="Toggle Thumbnails"
@@ -286,14 +290,14 @@ const Toolbar: React.FC<ToolbarProps> = ({
                 <GalleryVertical className="w-4 h-4" />
             </button>
             <div className="w-px h-4 bg-gray-600"></div>
-            <button onClick={handleZoomOut} className="p-2 hover:bg-gray-600 rounded text-gray-300" title="Zoom Out">
+            <button type="button" onClick={handleZoomOut} className="p-2 hover:bg-gray-600 rounded text-gray-300" title="Zoom Out">
                 <ZoomOut className="w-4 h-4" />
             </button>
             <span className="text-xs font-mono w-10 text-center">{(scale * 100).toFixed(0)}%</span>
-            <button onClick={handleZoomIn} className="p-2 hover:bg-gray-600 rounded text-gray-300" title="Zoom In">
+            <button type="button" onClick={handleZoomIn} className="p-2 hover:bg-gray-600 rounded text-gray-300" title="Zoom In">
                 <ZoomIn className="w-4 h-4" />
             </button>
-             <button onClick={onToggleFullscreen} className="p-2 hover:bg-gray-600 rounded text-gray-300 border-l border-gray-600 ml-1" title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}>
+             <button type="button" onClick={onToggleFullscreen} className="p-2 hover:bg-gray-600 rounded text-gray-300 border-l border-gray-600 ml-1" title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}>
                 {isFullscreen ? <Minimize className="w-3 h-3" /> : <Maximize className="w-3 h-3" />}
             </button>
          </div>
@@ -308,6 +312,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
             {visibleTools.map((tool) => (
                 <button
                     key={tool.id}
+                    type="button"
                     onClick={() => setTool(tool.id as ToolType)}
                     className={`flex flex-col items-center justify-center p-2 rounded-lg transition-colors ${
                         currentTool === tool.id 
@@ -333,6 +338,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
             </h3>
             <div className="flex gap-2">
                 <button 
+                    type="button"
                     onClick={onEditSelected}
                     className="flex-1 flex items-center justify-center px-2 py-2 bg-gray-600 hover:bg-gray-500 rounded-md text-xs text-white transition-colors"
                     title="Edit Details"
@@ -341,6 +347,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                     Edit
                 </button>
                 <button 
+                    type="button"
                     onClick={onDeleteSelected}
                     className="flex-1 flex items-center justify-center px-2 py-2 bg-red-900/30 hover:bg-red-900/50 text-red-300 border border-red-900/50 rounded-md text-xs transition-colors"
                     title="Delete Selection"
@@ -369,6 +376,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                     {severityLevels.map(s => (
                         <button
                             key={s}
+                            type="button"
                             onClick={() => setSeverity(s)}
                             className={`flex-1 py-2 min-w-[3rem] rounded-md text-sm font-bold border-2 transition-all ${
                                 severity === s 
@@ -413,6 +421,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                             {FONT_SIZES.map(s => (
                                 <button
                                     key={s}
+                                    type="button"
                                     onClick={() => setFontSize(s)}
                                     className={`px-2 py-1 text-xs rounded border ${currentFontSize === s ? 'bg-gray-600 border-gray-400 text-white' : 'border-gray-700 text-gray-400'}`}
                                 >
@@ -428,6 +437,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                             {STROKE_WIDTHS.map(w => (
                                 <button
                                     key={w}
+                                    type="button"
                                     onClick={() => setStrokeWidth(w)}
                                     className={`w-8 h-8 flex items-center justify-center rounded border ${currentStrokeWidth === w ? 'bg-gray-600 border-gray-400' : 'border-gray-700 bg-gray-800'}`}
                                 >
@@ -449,7 +459,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
         <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Data</h3>
         
         {!hideSaveJsonBtn && (
-            <button onClick={onSave} className="flex items-center w-full px-3 py-2 text-sm text-gray-300 hover:text-white hover:bg-gray-700 rounded-lg transition-colors">
+            <button type="button" onClick={onSave} className="flex items-center w-full px-3 py-2 text-sm text-gray-300 hover:text-white hover:bg-gray-700 rounded-lg transition-colors">
                 <Download className="w-4 h-4 mr-3" />
                 Save Annotations
             </button>
@@ -465,7 +475,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
         )}
         
         {!isViewOnly && (
-            <button onClick={onClear} className="flex items-center w-full px-3 py-2 text-sm text-red-400 hover:text-red-300 hover:bg-red-900/20 rounded-lg transition-colors">
+            <button type="button" onClick={onClear} className="flex items-center w-full px-3 py-2 text-sm text-red-400 hover:text-red-300 hover:bg-red-900/20 rounded-lg transition-colors">
                 <Trash2 className="w-4 h-4 mr-3" />
                 Clear All
             </button>

@@ -278,6 +278,7 @@ const CameraModal: React.FC<CameraModalProps> = ({ isOpen, onClose, onCapture })
              <div className="pointer-events-auto">
                 {!capturedImage && (
                     <button 
+                        type="button"
                         onClick={triggerFocus}
                         className="bg-black/50 backdrop-blur-md text-white p-3 rounded-full hover:bg-black/70 transition-all border border-white/20 shadow-lg"
                         title="Attempt Focus"
@@ -288,6 +289,7 @@ const CameraModal: React.FC<CameraModalProps> = ({ isOpen, onClose, onCapture })
              </div>
 
              <button 
+                type="button"
                 onClick={onClose}
                 className="pointer-events-auto bg-black/50 backdrop-blur-md text-white p-3 rounded-full hover:bg-red-900/80 hover:text-white transition-all border border-white/20 shadow-lg"
                 title="Close Camera"
@@ -317,7 +319,7 @@ const CameraModal: React.FC<CameraModalProps> = ({ isOpen, onClose, onCapture })
                     <AlertCircle className="w-12 h-12 mx-auto mb-4 opacity-50" />
                     <p className="font-bold mb-2">Camera Error</p>
                     <p className="text-sm opacity-90">{error}</p>
-                    <button onClick={startCamera} className="mt-6 px-4 py-2 bg-red-900/50 hover:bg-red-900 rounded text-white text-sm border border-red-800">Retry</button>
+                    <button type="button" onClick={startCamera} className="mt-6 px-4 py-2 bg-red-900/50 hover:bg-red-900 rounded text-white text-sm border border-red-800">Retry</button>
                 </div>
             ) : capturedImage ? (
                 // Review Captured Image: Display WITHOUT transforms, as the image is already cropped
@@ -366,6 +368,7 @@ const CameraModal: React.FC<CameraModalProps> = ({ isOpen, onClose, onCapture })
                     // REVIEW MODE: OK / Retake Buttons
                     <div className="flex gap-4 w-full max-w-md animate-in slide-in-from-bottom-5">
                         <button 
+                            type="button"
                             onClick={handleRetake}
                             className="flex-1 py-4 bg-gray-700 text-white rounded-2xl font-semibold flex items-center justify-center gap-2 hover:bg-gray-600 active:scale-95 transition-all"
                         >
@@ -374,6 +377,7 @@ const CameraModal: React.FC<CameraModalProps> = ({ isOpen, onClose, onCapture })
                         </button>
 
                         <button 
+                            type="button"
                             onClick={handleConfirm}
                             className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-blue-500 shadow-lg shadow-blue-900/30 active:scale-95 transition-all"
                         >
@@ -386,6 +390,7 @@ const CameraModal: React.FC<CameraModalProps> = ({ isOpen, onClose, onCapture })
                     <div className="grid grid-cols-3 items-center w-full max-w-md mx-auto">
                         <div className="flex justify-start">
                              <button 
+                                type="button"
                                 onClick={onClose}
                                 className="text-white font-medium text-sm bg-gray-800 hover:bg-gray-700 border border-gray-700 px-5 py-2.5 rounded-full transition-all"
                             >
@@ -395,6 +400,7 @@ const CameraModal: React.FC<CameraModalProps> = ({ isOpen, onClose, onCapture })
 
                         <div className="flex justify-center">
                             <button 
+                                type="button"
                                 onClick={handleCapture}
                                 disabled={!!error || isLoading}
                                 className="relative w-20 h-20 rounded-full border-4 border-white flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-[0_0_20px_rgba(0,0,0,0.5)] bg-red-600"

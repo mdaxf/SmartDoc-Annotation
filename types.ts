@@ -138,6 +138,9 @@ export interface SmartDocConfig {
   defaultTool?: ToolType; 
   hideCameraBtn?: boolean;
   showThumbnails?: boolean; 
+  
+  // New: Path to PDF Worker for offline environments
+  pdfWorkerSrc?: string; 
 
   styleConfig?: SmartDocStyleConfig;
 }

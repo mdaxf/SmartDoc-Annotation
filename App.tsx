@@ -7,14 +7,11 @@ import ThumbnailPanel from './components/ThumbnailPanel';
 import { Annotation, ToolType, SmartDocProps, TextAnnotation, SmartDocHandle, PageData, DocumentMeta } from './types';
 import { analyzeImageForAnnotations } from './services/geminiService';
 import { parsePptx } from './utils/pptx';
-import { Info, MessageSquare, Trash2, X, Check, ChevronLeft, ChevronRight, Loader2, AlertTriangle, ListChecks, Activity, LayoutTemplate, PanelRightClose, PanelRightOpen, MapPin, Type, Camera, Menu, FileText, Box, FileSpreadsheet } from 'lucide-react';
+import { Info, MessageSquare, Trash2, X, Check, ChevronLeft, ChevronRight, Loader2, AlertTriangle, ListChecks, Activity, LayoutTemplate, PanelRightClose, PanelRightOpen, MapPin, Type, Camera, Menu, FileText, Box, FileSpreadsheet, AlertCircle } from 'lucide-react';
 import { REASON_CODES, SEVERITY_COLORS, STATUS_OPTIONS } from './constants';
 import * as pdfjsLib from 'pdfjs-dist';
 
-// Configure PDF.js Worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://aistudiocdn.com/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs';
-
-// --- Internal Page Renderer ---
+// --- Internal Page Renderer (Optimized) ---
 const PageRenderer: React.FC<{
   page: PageData;
   scale: number;
@@ -35,7 +32,7 @@ const PageRenderer: React.FC<{
   onEdit: (id: string) => void;
   readOnly?: boolean;
   onDimensionsUpdate?: (id: string, w: number, h: number) => void;
-}> = ({
+}> = React.memo(({
   page,
   scale,
   tool,
@@ -57,39 +54,29 @@ const PageRenderer: React.FC<{
 }) => {
   const [bgImage, setBgImage] = useState<HTMLImageElement | null>(null);
   const [isRendering, setIsRendering] = useState(false);
-  const [loadError, setLoadError] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const docxContainerRef = useRef<HTMLDivElement>(null);
   const modelContainerRef = useRef<HTMLDivElement>(null);
   const [currentContentBlob, setCurrentContentBlob] = useState<Blob | string | null>(null);
 
   // Monitor DOCX height changes safely
   useEffect(() => {
-      // Skip if no docx data or no update handler
       if (!page.docxData || !onDimensionsUpdate) return;
 
       const checkHeight = () => {
           if (docxContainerRef.current) {
               const scrollHeight = docxContainerRef.current.scrollHeight;
               const currentHeight = page.height;
-
-              // Only update if the content is significantly larger than current page height
-              // Threshold of 50px prevents jitter.
-              // We also ensure we don't shrink below a reasonable minimum (default 1056)
               if (scrollHeight > currentHeight + 50) {
-                  // Add a 100px buffer to ensure content fits comfortably
                   onDimensionsUpdate(page.id, page.width, scrollHeight + 100);
               }
           }
       };
 
-      // Check shortly after render
       const timer = setTimeout(checkHeight, 500);
-      
-      // Also check via ResizeObserver for robustness
       let observer: ResizeObserver | null = null;
       if (docxContainerRef.current) {
           observer = new ResizeObserver(() => {
-             // Debounce observer calls
              if(timer) clearTimeout(timer);
              setTimeout(checkHeight, 100);
           });
@@ -112,66 +99,56 @@ const PageRenderer: React.FC<{
           if (bgImage && bgImage.src === page.imageSrc) return;
           
           setIsRendering(true);
-          setLoadError(false);
+          setLoadError(null);
 
           loadTimeout = setTimeout(() => {
              if (active && !bgImage) {
                  console.warn("Image load timed out:", page.imageSrc);
                  setIsRendering(false);
-                 setLoadError(true);
+                 setLoadError("Timeout loading image.");
              }
           }, 15000);
           
-          const img = new Image();
-          img.crossOrigin = "Anonymous";
-          img.src = page.imageSrc;
-          
-          img.onload = () => {
-              if (active) {
-                  clearTimeout(loadTimeout);
-                  if (img.naturalWidth > 0) {
-                      setBgImage(img);
-                      setIsRendering(false);
-                  } else {
-                      setIsRendering(false);
-                      setLoadError(true);
+          const loadImage = (src: string, useCors: boolean) => {
+              const img = new Image();
+              if (useCors) img.crossOrigin = "Anonymous";
+              img.src = src;
+              
+              img.onload = () => {
+                  if (active) {
+                      clearTimeout(loadTimeout);
+                      if (img.naturalWidth > 0) {
+                          setBgImage(img);
+                          setIsRendering(false);
+                      } else {
+                          if (useCors) loadImage(src, false);
+                          else { setIsRendering(false); setLoadError("Image loaded but has 0 dimensions."); }
+                      }
                   }
-              }
+              };
+
+              img.onerror = (e) => {
+                  if (!active) return;
+                  if (useCors) {
+                      console.warn("CORS load failed, attempting non-CORS fallback...", src);
+                      loadImage(src, false);
+                  } else {
+                      console.error("Final image load failure", e);
+                      clearTimeout(loadTimeout);
+                      setLoadError("Failed to load image.");
+                      setIsRendering(false);
+                  }
+              };
           };
 
-          img.onerror = () => {
-              if (active) {
-                  console.warn("Primary load failed, attempting fallback...", page.imageSrc);
-                  const retryImg = new Image();
-                  const isHttp = page.imageSrc!.startsWith('http');
-                  const src = isHttp 
-                    ? `${page.imageSrc}${page.imageSrc!.includes('?') ? '&' : '?'}cb=${Date.now()}`
-                    : page.imageSrc!;
-                  
-                  retryImg.src = src;
-                  retryImg.onload = () => {
-                      if (active) {
-                          clearTimeout(loadTimeout);
-                          setBgImage(retryImg);
-                          setIsRendering(false);
-                      }
-                  };
-                  retryImg.onerror = () => {
-                      if (active) {
-                          clearTimeout(loadTimeout);
-                          setLoadError(true);
-                          setIsRendering(false);
-                      }
-                  };
-              }
-          };
+          loadImage(page.imageSrc, true);
       } 
       // 2. PDF Handling
       else if (page.pdfPage) {
            if (bgImage) return; 
            setIsRendering(true);
+           setLoadError(null);
            try {
-               // Render at higher scale (3.0) for clearer font weights on high-DPI screens
                const viewport = page.pdfPage.getViewport({ scale: 3.0 }); 
                const canvas = document.createElement('canvas');
                canvas.width = viewport.width;
@@ -179,7 +156,6 @@ const PageRenderer: React.FC<{
                const context = canvas.getContext('2d');
                if (context) {
                  await page.pdfPage.render({ canvasContext: context, viewport } as any).promise;
-                 // Use PNG (Lossless) instead of JPEG to preserve sharp text edges
                  const imgData = canvas.toDataURL('image/png');
                  const img = new Image();
                  img.src = imgData;
@@ -191,7 +167,7 @@ const PageRenderer: React.FC<{
            } catch (e) { 
                console.error(e);
                if (active) {
-                   setLoadError(true);
+                   setLoadError("PDF Rendering Error");
                    setIsRendering(false);
                }
            }
@@ -215,20 +191,15 @@ const PageRenderer: React.FC<{
               }
           } catch (e) {
               console.error("Docx render error", e);
-              if (active) setLoadError(true);
+              if (active) setLoadError("Document parsing error");
           } finally {
               if (active) setIsRendering(false);
           }
       }
-      // 4. 3D Model (GLB/GLTF)
+      // 4. 3D Model
       else if (page.modelSrc && modelContainerRef.current) {
           if(currentContentBlob === page.modelSrc) return;
           setCurrentContentBlob(page.modelSrc);
-          // 3D rendering handled by injected <model-viewer> or iframe
-      }
-      // 5. Text/HTML
-      else if (page.textContent) {
-           // Handled in render return directly
       }
     };
 
@@ -240,12 +211,15 @@ const PageRenderer: React.FC<{
     };
   }, [page]);
 
+  const modelViewerSrc = "libs/model-viewer.min.js";
+
   return (
     <div 
       className="relative bg-white shadow-xl m-auto transition-transform origin-top group shrink-0"
       style={{ 
         width: page.width * scale, 
         height: page.height * scale,
+        willChange: 'transform' // Hardware accel for zoom
       }}
       id={`page-${page.id}`}
     >
@@ -261,21 +235,32 @@ const PageRenderer: React.FC<{
       )}
 
       {loadError && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-100 text-gray-500 z-10 border-2 border-dashed border-gray-300 m-4 rounded-lg">
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-100 text-gray-500 z-10 border-2 border-dashed border-gray-300 m-4 rounded-lg p-4 text-center">
               <AlertTriangle className="w-10 h-10 text-red-400 mb-2" />
-              <p className="font-medium text-red-400">Failed to load content</p>
+              <p className="font-medium text-red-400 mb-1">Failed to load content</p>
+              <p className="text-xs text-gray-400 max-w-xs">{loadError}</p>
           </div>
       )}
       
       {/* Content Layers */}
       
+      {/* Image / PDF Background (Rendered in DOM for performance) */}
+      {bgImage && (
+          <div className="absolute inset-0 z-0 pointer-events-none select-none">
+              <img 
+                  src={bgImage.src} 
+                  className="w-full h-full object-contain" 
+                  alt="Page Background" 
+              />
+          </div>
+      )}
+
       {/* DOCX */}
       {page.docxData && (
           <>
             <style>{`
                 .docx-wrapper { isolation: isolate; }
                 .docx-wrapper * { box-sizing: content-box; }
-                /* Simulate Pages visually for sections */
                 .docx-content > section, .docx-content > article {
                     background: white;
                     margin-bottom: 40px;
@@ -287,16 +272,9 @@ const PageRenderer: React.FC<{
                 ref={docxContainerRef} 
                 className="absolute inset-0 overflow-visible bg-gray-100 text-black p-8 docx-wrapper z-0 origin-top-left" 
                 style={{ 
-                    // Use CSS transform on the content if needed, but container scaling is handled by parent
-                    // We set width/height to 100% of the parent container which is scaled
                     backgroundColor: '#f3f4f6',
-                    transform: `scale(${scale})`, // Apply zoom scale inside wrapper
+                    transform: `scale(${scale})`, 
                     transformOrigin: 'top left',
-                    // Compensate width so it fills scaled area
-                    // e.g. Scale 0.5 -> Width needs to be 200% to fill same visual area? 
-                    // No, parent is sized (W*Scale). Child is 100% of parent (W*Scale).
-                    // We need Child to be W (unscaled).
-                    // So we must inverse scale width.
                     width: `${(1/scale) * 100}%`,
                     height: `${(1/scale) * 100}%`
                 }} 
@@ -309,7 +287,6 @@ const PageRenderer: React.FC<{
           <div 
             className="absolute inset-0 overflow-auto bg-white text-black p-8 z-0" 
             style={{ 
-                // Ensure text is visible (force black color for PPTX)
                 color: 'black',
                 width: '100%',
                 height: '100%'
@@ -317,7 +294,6 @@ const PageRenderer: React.FC<{
           >
               <div 
                 dangerouslySetInnerHTML={{ __html: page.textContent }} 
-                // Apply scale internally if needed, or rely on parent
                 style={{
                      transform: `scale(${scale})`,
                      transformOrigin: 'top left',
@@ -334,7 +310,17 @@ const PageRenderer: React.FC<{
                 srcDoc={`
                     <html>
                     <head>
-                        <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.4.0/model-viewer.min.js"></script>
+                        <script type="module" src="${modelViewerSrc}"></script>
+                        <script>
+                            window.onerror = function() {
+                                if(!window.customElements.get('model-viewer')) {
+                                    var s = document.createElement('script');
+                                    s.type='module';
+                                    s.src='https://ajax.googleapis.com/ajax/libs/model-viewer/3.4.0/model-viewer.min.js';
+                                    document.head.appendChild(s);
+                                }
+                            }
+                        </script>
                         <style>body { margin: 0; overflow: hidden; background-color: #f3f4f6; display: flex; justify-content: center; align-items: center; height: 100vh; }</style>
                     </head>
                     <body>
@@ -348,7 +334,7 @@ const PageRenderer: React.FC<{
           </div>
       )}
 
-      {/* Annotation Layer - Z-index 10 to stay on top, but MUST have transparent background */}
+      {/* Annotation Layer */}
       <div className="absolute inset-0 z-10 pointer-events-none">
         <div className="w-full h-full pointer-events-auto">
             <AnnotationLayer 
@@ -364,7 +350,6 @@ const PageRenderer: React.FC<{
                 onAnnotationUpdate={onAnnotationUpdate}
                 onSelect={onSelect}
                 selectedId={selectedId}
-                backgroundImage={bgImage} 
                 scale={scale}
                 page={page.pageNumber}
                 severity={severity}
@@ -378,10 +363,11 @@ const PageRenderer: React.FC<{
       </div>
     </div>
   );
-};
+});
 
 // ... CommentModal remains same ... 
 const CommentModal: React.FC<any> = ({ isOpen, onClose, onSave, onDelete, initialData, severityOptions, reasonCodeOptions, statusOptions, readOnly }) => {
+    // ... same code ...
     const [formData, setFormData] = useState(initialData);
     const commentInputRef = useRef<HTMLTextAreaElement>(null);
     const severityLevels = Object.keys(severityOptions).map(Number).sort((a: number, b: number) => a - b);
@@ -410,7 +396,7 @@ const CommentModal: React.FC<any> = ({ isOpen, onClose, onSave, onDelete, initia
               <MessageSquare className="w-4 h-4 text-blue-400" />
               Annotation Details
             </h3>
-            <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors">
+            <button type="button" onClick={onClose} className="text-gray-400 hover:text-white transition-colors">
               <X className="w-5 h-5" />
             </button>
           </div>
@@ -425,6 +411,7 @@ const CommentModal: React.FC<any> = ({ isOpen, onClose, onSave, onDelete, initia
                       {severityLevels.map((s: number) => (
                           <button
                               key={s}
+                              type="button"
                               disabled={readOnly}
                               onClick={() => setFormData((prev:any) => ({ ...prev, severity: s }))}
                               className={`flex-1 py-2 rounded-md text-sm font-bold border transition-all ${
@@ -507,6 +494,7 @@ const CommentModal: React.FC<any> = ({ isOpen, onClose, onSave, onDelete, initia
                <div>
                   {!initialData.isNew && onDelete && !readOnly && (
                       <button 
+                        type="button"
                         onClick={() => {
                              if(window.confirm("Are you sure you want to delete this annotation?")) onDelete();
                         }} 
@@ -518,11 +506,12 @@ const CommentModal: React.FC<any> = ({ isOpen, onClose, onSave, onDelete, initia
                   )}
                </div>
                <div className="flex gap-2">
-                    <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-300 hover:bg-gray-700 rounded-lg transition-colors">
+                    <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-300 hover:bg-gray-700 rounded-lg transition-colors">
                         {readOnly ? 'Close' : 'Cancel'}
                     </button>
                     {!readOnly && (
                         <button 
+                            type="button"
                             onClick={() => onSave(formData)} 
                             className="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center gap-2"
                         >
@@ -556,6 +545,7 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
     defaultTool = 'arrow',
     hideCameraBtn = false,
     showThumbnails: initialShowThumbnails = true,
+    pdfWorkerSrc, // NEW PROP: Allow passing local worker path
 }, ref) => {
   // --- State ---
   const [documents, setDocuments] = useState<DocumentMeta[]>([]);
@@ -563,7 +553,8 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
   
   const [pages, setPages] = useState<PageData[]>([]);
   const [annotations, setAnnotations] = useState<Annotation[]>(initialAnnotations);
-  
+
+  // ... (Other state and refs remain identical) ...
   const pagesRef = useRef<PageData[]>(pages);
   useEffect(() => { pagesRef.current = pages; }, [pages]);
 
@@ -617,6 +608,18 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
   // Identify Active Page for Single-Page Rendering
   const currentPage = visiblePages[activePageIndex];
 
+  // Set PDF Worker
+  useEffect(() => {
+    if (pdfWorkerSrc) {
+        // User explicitly provided a path (e.g. for offline use)
+        pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
+    } else {
+        // Default to CDN based on the library version to ensure compatibility
+        const v = pdfjsLib.version || '4.10.38';
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${v}/build/pdf.worker.min.mjs`;
+    }
+  }, [pdfWorkerSrc]);
+
   // Define dimension update handler with useCallback to prevent infinite render loops
   const handleDimensionsUpdate = useCallback((id: string, w: number, h: number) => {
       setPages(prev => prev.map(p => {
@@ -629,10 +632,15 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
       }));
   }, []);
 
-  // Notify Ready
+  // Notify Ready - UPDATED TO INCLUDE ANNOTATIONS READY
   useEffect(() => {
       if (events?.onSmartDocReady) setTimeout(() => events.onSmartDocReady?.(), 0);
-  }, []);
+      
+      // Fire annotations ready if initial annotations exist
+      if (initialAnnotations.length > 0 && events?.onAnnotationsReady) {
+          setTimeout(() => events.onAnnotationsReady?.(), 100);
+      }
+  }, []); // Only runs once on mount
 
   // Mobile Check
   useEffect(() => {
@@ -738,7 +746,6 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
 
 
   // --- Multi-Document Loading Logic ---
-  // (Same as before)
   const loadDocumentsFromUrls = useCallback(async (urls: string | string[], providedIds?: string[], shouldReset = true) => {
         setIsLoadingFile(true);
         if (shouldReset) {
@@ -775,24 +782,50 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
             try {
                 // 1. PDF
                 if (isPdf) {
-                    const res = await fetch(url);
-                    const blob = await res.blob();
-                    const ab = await blob.arrayBuffer();
-                    const loadingTask = pdfjsLib.getDocument({ data: ab });
-                    const pdf = await loadingTask.promise;
-                    pageCount = pdf.numPages;
+                    // Try fetch first (Better for binary data control)
+                    // If fail, fall back to PDFJS direct load (handles some range requests better but strict CORS still blocks)
+                    let pdfDoc = null;
                     
-                    for(let j=1; j<=pdf.numPages; j++){
-                        const p = await pdf.getPage(j);
-                        const vp = p.getViewport({scale:1});
-                        newPages.push({
-                            id: `${docId}-p${j}`,
-                            documentId: docId,
-                            pageNumber: j,
-                            width: vp.width,
-                            height: vp.height,
-                            pdfPage: p
-                        });
+                    try {
+                        // Standard fetch to get blob
+                        const res = await fetch(url);
+                        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                        const blob = await res.blob();
+                        const ab = await blob.arrayBuffer();
+                        const loadingTask = pdfjsLib.getDocument({ data: ab });
+                        pdfDoc = await loadingTask.promise;
+                    } catch (fetchErr) {
+                        console.warn(`PDF Fetch failed (${url}), trying direct PDFJS load...`, fetchErr);
+                        try {
+                             // Fallback: Direct URL load (PDF.js internal transport)
+                             const loadingTask = pdfjsLib.getDocument(url);
+                             pdfDoc = await loadingTask.promise;
+                        } catch (directErr) {
+                             console.error("Critical: Failed to load PDF via both fetch and direct.", directErr);
+                             // Push a dummy page to show error state in PageRenderer
+                             newPages.push({
+                                id: `${docId}-err`, documentId: docId, pageNumber: 1,
+                                width: 600, height: 800, 
+                            });
+                            newDocuments.push({ id: docId, name: fileName, type: 'pdf', pageCount: 1 });
+                            continue; // Skip rest of loop for this file
+                        }
+                    }
+
+                    if (pdfDoc) {
+                        pageCount = pdfDoc.numPages;
+                        for(let j=1; j<=pdfDoc.numPages; j++){
+                            const p = await pdfDoc.getPage(j);
+                            const vp = p.getViewport({scale:1});
+                            newPages.push({
+                                id: `${docId}-p${j}`,
+                                documentId: docId,
+                                pageNumber: j,
+                                width: vp.width,
+                                height: vp.height,
+                                pdfPage: p
+                            });
+                        }
                     }
                 } 
                 // 2. DOCX
@@ -827,9 +860,18 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
                 // 5. Image (Fallback)
                 else {
                     const dims = await new Promise<{w:number,h:number}>(r => {
-                        const img = new Image(); img.crossOrigin="Anonymous";
+                        const img = new Image(); 
+                        // Try with anonymous first to see dimensions
+                        img.crossOrigin="Anonymous";
                         img.onload=()=>r({w:img.naturalWidth, h:img.naturalHeight});
-                        img.onerror=()=>r({w:800, h:600});
+                        img.onerror=()=> {
+                             // If anonymous fails, try without (tainted), just to get dims
+                             img.crossOrigin = null;
+                             img.src = url; // Re-trigger
+                             img.onload=()=>r({w:img.naturalWidth, h:img.naturalHeight});
+                             // If that fails too, return default
+                             img.onerror=()=>r({w:800, h:600});
+                        };
                         img.src = url;
                     });
                     pageCount = 1;
@@ -859,10 +901,13 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
             setCurrentDocumentId(newDocuments[0].id);
         }
         setIsLoadingFile(false);
+        // Fire Document Ready Event
+        if (events?.onDocumentReady) {
+            setTimeout(() => events.onDocumentReady?.(), 50);
+        }
   }, [events]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-      // (Same as before)
       const files = e.target.files;
       if (!files || files.length === 0) return;
       setIsLoadingFile(true);
@@ -957,6 +1002,11 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
       setPages(prev => [...prev, ...newPages]);
       if (newDocs.length > 0) setCurrentDocumentId(newDocs[0].id);
       setIsLoadingFile(false);
+      
+      // Fire Document Ready Event
+      if (events?.onDocumentReady) {
+          setTimeout(() => events.onDocumentReady?.(), 50);
+      }
       e.target.value = ''; 
   };
 
@@ -976,6 +1026,8 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
         setPages(prev => [...prev, newPage]);
         setCurrentDocumentId(photoId); 
         events?.onPhotoAdd?.({ dataUrl: imageDataUrl, id: photoId });
+        // Fire Document Ready for Camera too
+        if (events?.onDocumentReady) setTimeout(() => events.onDocumentReady?.(), 50);
       } catch (e) {
           console.error("Failed to process camera image", e);
       } finally {
@@ -1072,6 +1124,7 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
                   <button
                     key={doc.id}
                     onClick={() => handleDocChange(doc.id)}
+                    type="button"
                     className={`px-3 py-1 rounded-full text-xs font-medium transition-all shrink-0 ${
                         currentDocumentId === doc.id 
                         ? 'bg-blue-600 text-white shadow' 
@@ -1138,6 +1191,11 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
     }
   };
 
+  // Only pass the relevant annotations to PageRenderer to avoid deep re-renders.
+  // Note: Filter creates new array, so React.memo uses shallow comparison. 
+  // We rely on PageRenderer being fast now that the heavy image is not redrawn on canvas.
+  const pageAnnotations = currentPage ? visibleAnnotations.filter(a => (a.page || 1) === currentPage.pageNumber) : [];
+
   return (
     <div ref={containerRef} className="flex w-full h-full bg-gray-900 text-gray-100 font-sans overflow-hidden" style={styleConfig?.container}>
       {layoutMode === 'sidebar' && (
@@ -1198,7 +1256,7 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
         {/* Header */}
         <div className="h-14 bg-gray-800 border-b border-gray-700 flex items-center justify-between px-4 shadow-md z-10 shrink-0">
              <div className="flex items-center gap-2">
-                 {isMobile && <button onClick={() => { setLayoutMode('sidebar'); setMobileMenuOpen(true); }} className="p-2"><Menu className="w-5 h-5"/></button>}
+                 {isMobile && <button type="button" onClick={() => { setLayoutMode('sidebar'); setMobileMenuOpen(true); }} className="p-2"><Menu className="w-5 h-5"/></button>}
                  <span className="font-bold text-lg text-blue-400">SmartDoc</span>
                  <span className="text-gray-500">|</span>
                  <span className="text-gray-300 text-sm font-medium truncate max-w-[150px]">
@@ -1209,6 +1267,7 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
              <div className="flex items-center gap-2">
                   {!hideCameraBtn && !isViewOnly && (
                    <button 
+                     type="button"
                      onClick={() => setShowCamera(true)}
                      className="p-2 rounded-md hover:bg-gray-700 transition-colors text-gray-400"
                      title="Add Photo"
@@ -1216,8 +1275,8 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
                        <Camera className="w-5 h-5" />
                    </button>
                   )}
-                  <button onClick={() => setLayoutMode(m => m==='sidebar'?'bottom':'sidebar')}><LayoutTemplate className="w-5 h-5 text-gray-400"/></button>
-                  <button onClick={() => setShowRightPanel(!showRightPanel)}><PanelRightOpen className="w-5 h-5 text-gray-400"/></button>
+                  <button type="button" onClick={() => setLayoutMode(m => m==='sidebar'?'bottom':'sidebar')}><LayoutTemplate className="w-5 h-5 text-gray-400"/></button>
+                  <button type="button" onClick={() => setShowRightPanel(!showRightPanel)}><PanelRightOpen className="w-5 h-5 text-gray-400"/></button>
              </div>
         </div>
 
@@ -1264,7 +1323,7 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
                         tool={tool}
                         strokeWidth={strokeWidth}
                         fontSize={fontSize}
-                        annotations={visibleAnnotations.filter(a => (a.page || 1) === currentPage.pageNumber)}
+                        annotations={pageAnnotations}
                         onAnnotationsChange={(updatedPageAnns) => {
                              if(isViewOnly) return;
                              setAnnotations(prev => {
@@ -1332,7 +1391,7 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
             <div className={`absolute top-14 bottom-0 right-0 z-40 bg-gray-900 border-l border-gray-700 w-80 flex flex-col`}>
                  <div className="p-3 border-b border-gray-800 flex justify-between items-center">
                      <span className="font-bold text-gray-400 uppercase text-xs">Annotations ({visibleAnnotations.length})</span>
-                     <button onClick={() => setShowRightPanel(false)} className="text-gray-500 hover:text-white"><X className="w-4 h-4" /></button>
+                     <button type="button" onClick={() => setShowRightPanel(false)} className="text-gray-500 hover:text-white"><X className="w-4 h-4" /></button>
                  </div>
                  <div className="flex-1 overflow-y-auto p-4 space-y-3">
                      {visibleAnnotations.map(ann => (

@@ -28,7 +28,10 @@ const ThumbnailRenderer: React.FC<{ page: PageData; index: number }> = ({ page, 
           await new Promise((resolve, reject) => {
              img.onload = resolve;
              img.onerror = () => {
-                 // Fallback if CORS fails or load error: use original src
+                 // Fallback if CORS fails: use original src but do NOT draw to canvas (avoid tainted canvas error)
+                 // Just display the image directly via src if possible, but we can't do that inside 
+                 // the canvas generation logic below.
+                 // So we set thumbSrc directly to the imageSrc and return.
                  if (active) setThumbSrc(page.imageSrc!);
                  resolve(null);
              };
@@ -36,20 +39,31 @@ const ThumbnailRenderer: React.FC<{ page: PageData; index: number }> = ({ page, 
 
           // If we already set fallback in onerror or component unmounted, skip canvas gen
           if (!active) return;
-          if (img.width === 0 && !thumbSrc) return; // Load failed or fallback used
+          if (thumbSrc) { setLoading(false); return; } // Handled by onerror fallback
+          if (img.width === 0) return; // Load failed
 
-          // Create canvas for thumbnail
-          const canvas = document.createElement('canvas');
-          const targetWidth = 150; // Thumbnail resolution width
-          const scale = targetWidth / img.naturalWidth;
-          canvas.width = targetWidth;
-          canvas.height = img.naturalHeight * scale;
-          
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-            if (active) setThumbSrc(canvas.toDataURL());
+          try {
+              // Create canvas for thumbnail
+              const canvas = document.createElement('canvas');
+              const targetWidth = 150; // Thumbnail resolution width
+              const scale = targetWidth / img.naturalWidth;
+              canvas.width = targetWidth;
+              canvas.height = img.naturalHeight * scale;
+              
+              const ctx = canvas.getContext('2d');
+              if (ctx) {
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                // This line will throw SecurityError if image loaded with crossOrigin="Anonymous" failed 
+                // and we fell back to a tainted image, BUT here we are in the "success" path of the CORS load.
+                // If CORS load failed, we hit onerror above.
+                if (active) setThumbSrc(canvas.toDataURL());
+              }
+          } catch (securityErr) {
+              // If canvas is tainted (shouldn't happen in this block if crossOrigin worked, but good for safety)
+              console.warn("Thumbnail generation blocked by CORS", securityErr);
+              if (active) setThumbSrc(page.imageSrc!);
           }
+
         } else if (page.pdfPage) {
           // Render a small thumbnail of the PDF page
           const viewport = page.pdfPage.getViewport({ scale: 0.3 }); 

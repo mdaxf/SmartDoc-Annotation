@@ -5,24 +5,27 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SmartDoc Annotator</title>
-    <!-- Add libraries for DOCX support -->
+    
+    <!-- 
+      NOTE: In an offline environment, you must download these JS files locally
+      and reference them here, or rely on the bundler to include them.
+      See OFFLINE_SETUP.md for details.
+    -->
     <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/docx-preview@0.1.15/dist/docx-preview.min.js"></script>
     
   <script type="importmap">
 {
   "imports": {
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
-    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.555.0",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
-    "uuid": "https://aistudiocdn.com/uuid@^13.0.0",
     "react/": "https://aistudiocdn.com/react@^19.2.1/",
     "react": "https://aistudiocdn.com/react@^19.2.1",
-    "pdfjs-dist": "https://aistudiocdn.com/pdfjs-dist@4.10.38/build/pdf.min.mjs",
-    "pdfjs-dist/build/pdf.worker.min.mjs": "https://aistudiocdn.com/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs",
-    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.1",
-    "path": "https://aistudiocdn.com/path@^0.12.7",
-    "vite": "https://aistudiocdn.com/vite@^7.2.6"
+    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.556.0",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.31.0",
+    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.2",
+    "vite": "https://aistudiocdn.com/vite@^7.2.7",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
+    "pdfjs-dist": "https://aistudiocdn.com/pdfjs-dist@^5.4.449",
+    "path": "https://aistudiocdn.com/path@^0.12.7"
   }
 }
 </script>
