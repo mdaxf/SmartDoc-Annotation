@@ -639,39 +639,13 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
   // Set PDF Worker
   useLayoutEffect(() => {
     const pdfJs = getPdfLib();
-    if (!pdfJs) return;
-
-    let targetSrc = pdfWorkerSrc;
-
-    // Default to CDN ONLY if no worker provided and we are not in a strict offline requirement
-    // In strict environments, user MUST provide pdfWorkerSrc.
-    if (!targetSrc) {
-        // Fallback for easy setup, but warn if it might block
-        targetSrc = `https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js`;
-    }
-
-    // EDGE CASE: If running via file:// protocol
-    if (typeof window !== 'undefined' && window.location.protocol === 'file:') {
-        const isLocalPath = targetSrc && !targetSrc.startsWith('http') && !targetSrc.startsWith('blob:');
-        if (isLocalPath) {
-             console.warn(`SmartDoc: 'file://' protocol detected. Local worker '${targetSrc}' may be blocked. Trying CDN fallback.`);
-             targetSrc = `https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js`;
-        }
-    }
-
-    // Resolve Relative URL to Absolute
-    try {
-        if (targetSrc && !targetSrc.startsWith('http') && !targetSrc.startsWith('blob:') && typeof window !== 'undefined' && window.location) {
-            targetSrc = new URL(targetSrc, window.location.href).toString();
-        }
-    } catch (e) {
-        console.warn("SmartDoc: Could not resolve worker URL", e);
-    }
-
-    // Apply
-    if (targetSrc && pdfJs.GlobalWorkerOptions.workerSrc !== targetSrc) {
-        console.log(`[SmartDoc] Configuring PDF Worker: ${targetSrc}`);
-        pdfJs.GlobalWorkerOptions.workerSrc = targetSrc;
+    // FORCE Apply if valid - Override existing settings if provided by config
+    if (pdfJs && pdfWorkerSrc) {
+        console.log(`[SmartDoc] Configuring PDF Worker: ${pdfWorkerSrc}`);
+        pdfJs.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
+    } else if (pdfJs && !pdfJs.GlobalWorkerOptions.workerSrc) {
+        // Only set default if nothing is set
+        pdfJs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js`;
     }
   }, [pdfWorkerSrc]);
 
@@ -687,9 +661,11 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
       }));
   }, []);
 
-  // Notify Ready - UPDATED TO INCLUDE ANNOTATIONS READY
+  // Notify Ready - UPDATED TO INCLUDE ANNOTATIONS READY AND 'onSmartDocLoaded' alias
   useEffect(() => {
+      // Trigger ready events
       if (events?.onSmartDocReady) setTimeout(() => events.onSmartDocReady?.(), 0);
+      if (events?.onSmartDocLoaded) setTimeout(() => events.onSmartDocLoaded?.(), 0); // Alias for legacy/user expectation
       
       // Fire annotations ready if initial annotations exist
       if (initialAnnotations.length > 0 && events?.onAnnotationsReady) {
@@ -703,6 +679,33 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
     checkMobile();
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  // --- Fullscreen Logic ---
+  const toggleFullscreen = useCallback(() => {
+    if (!containerRef.current) return;
+
+    if (!document.fullscreenElement) {
+        containerRef.current.requestFullscreen().catch(err => {
+            console.error(`Error attempting to enable fullscreen: ${err.message}`);
+        });
+    } else {
+        document.exitFullscreen().catch(err => {
+            console.error(`Error attempting to exit fullscreen: ${err.message}`);
+        });
+    }
+  }, []);
+
+  // Sync state with browser events (e.g., user presses Escape)
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+        setIsFullscreen(!!document.fullscreenElement);
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => {
+        document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
   }, []);
 
   // Workspace Wheel Zoom Handler (Ctrl + Wheel)
@@ -821,9 +824,8 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
         // Resolve PDF.js library for use in loop
         const pdfJs = getPdfLib();
         
-        // Ensure worker is configured before calling getDocument
-        if (pdfJs && !pdfJs.GlobalWorkerOptions.workerSrc && pdfWorkerSrc) {
-             console.log("[SmartDoc] Eager configuration of worker:", pdfWorkerSrc);
+        // FORCE update worker source if prop provided, ensuring local path is used
+        if (pdfJs && pdfWorkerSrc) {
              pdfJs.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
         }
 
@@ -1300,6 +1302,19 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
 
   return (
     <div ref={containerRef} className="flex w-full h-full bg-gray-900 text-gray-100 font-sans overflow-hidden" style={styleConfig?.container}>
+      
+      {/* Floating Exit Fullscreen Button */}
+      {isFullscreen && (
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            className="absolute top-4 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-2 px-4 py-2 bg-gray-800/90 hover:bg-gray-700 text-white rounded-full shadow-2xl border border-gray-600 backdrop-blur transition-all animate-in zoom-in"
+          >
+             <span className="text-xs font-semibold">Exit Fullscreen</span>
+             <X className="w-4 h-4" />
+          </button>
+      )}
+
       {layoutMode === 'sidebar' && (
         <div className={`
              ${isMobile ? 'fixed inset-y-0 left-0 z-50 transition-transform duration-300 shadow-2xl' : 'relative z-10'}
@@ -1318,7 +1333,7 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
                 hasFile={documents.length > 0}
                 scale={scale} setScale={(s) => { setScale(s); setAutoFit(false); }}
                 onFitToScreen={() => setAutoFit(true)}
-                isFullscreen={isFullscreen} onToggleFullscreen={() => {}}
+                isFullscreen={isFullscreen} onToggleFullscreen={toggleFullscreen}
                 selectedAnnotationId={selectedAnnotationId}
                 onDeleteSelected={() => selectedAnnotationId && deleteAnnotation(selectedAnnotationId)}
                 onEditSelected={() => setShowCommentModal(true)}
@@ -1474,7 +1489,7 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
                  hasFile={documents.length > 0}
                  scale={scale} setScale={(s) => { setScale(s); setAutoFit(false); }}
                  onFitToScreen={() => setAutoFit(true)}
-                 isFullscreen={isFullscreen} onToggleFullscreen={() => {}}
+                 isFullscreen={isFullscreen} onToggleFullscreen={toggleFullscreen}
                  selectedAnnotationId={selectedAnnotationId}
                  onDeleteSelected={() => selectedAnnotationId && deleteAnnotation(selectedAnnotationId)}
                  onEditSelected={() => setShowCommentModal(true)}

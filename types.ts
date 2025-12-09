@@ -99,6 +99,7 @@ export interface SmartDocStyleConfig {
 
 export interface SmartDocEvents {
   onSmartDocReady?: () => void;
+  onSmartDocLoaded?: () => void; // Added alias
   onDocumentReady?: () => void;
   onAnnotationsReady?: () => void;
   onAnnotationAdd?: (annotation: Annotation) => void;

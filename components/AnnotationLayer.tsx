@@ -514,7 +514,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
             >
                 <button 
                     type="button"
-                    onClick={() => onEdit && onEdit(selectedId)}
+                    onClick={(e) => { e.preventDefault(); onEdit && onEdit(selectedId); }}
                     className="p-1.5 hover:bg-gray-700 text-blue-400 rounded-md transition-colors"
                     title="Edit"
                 >
@@ -523,7 +523,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
                 <div className="w-px h-4 bg-gray-700 mx-0.5"></div>
                 <button 
                     type="button"
-                    onClick={() => onDelete && onDelete(selectedId)}
+                    onClick={(e) => { e.preventDefault(); onDelete && onDelete(selectedId); }}
                     className="p-1.5 hover:bg-red-900/50 text-red-400 rounded-md transition-colors"
                     title="Delete"
                 >
