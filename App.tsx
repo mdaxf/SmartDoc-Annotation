@@ -613,10 +613,30 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
   // Identify Active Page for Single-Page Rendering
   const currentPage = visiblePages[activePageIndex];
 
+  // Resolve Model Viewer Source (Handles file:// protocol issue for 3D Viewer)
+  let resolvedModelViewerSrc = modelViewerSrc || "https://ajax.googleapis.com/ajax/libs/model-viewer/3.4.0/model-viewer.min.js";
+  if (typeof window !== 'undefined' && window.location.protocol === 'file:') {
+     // If user provided a relative path while on file://, ignoring it to prevent CORS error
+     if (!resolvedModelViewerSrc.startsWith('http')) {
+        resolvedModelViewerSrc = "https://ajax.googleapis.com/ajax/libs/model-viewer/3.4.0/model-viewer.min.js";
+     }
+  }
+
   // Set PDF Worker - KEY FIX FOR "About:Blank" and Relative Path errors
   useLayoutEffect(() => {
     // 1. Determine Source
     let src = pdfWorkerSrc;
+
+    // EDGE CASE: If running via file:// protocol, relative paths to workers fail due to browser security (CORS/Module restrictions).
+    // We force CDN usage in this specific case to ensure the demo works out-of-the-box, unless the user provided a blob/http url.
+    if (typeof window !== 'undefined' && window.location.protocol === 'file:') {
+        const isLocalPath = src && !src.startsWith('http') && !src.startsWith('blob:');
+        if (!src || isLocalPath) {
+             console.warn("SmartDoc: 'file://' protocol detected. Forcing CDN for PDF Worker to bypass browser worker security restrictions. To use local workers, serve this folder via HTTP (e.g., 'npm run dev' or 'python -m http.server').");
+             src = `https://unpkg.com/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs`;
+        }
+    }
+
     if (!src) {
         // Default to specific stable CDN version to match pdfjs-dist import
         src = `https://unpkg.com/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs`;
@@ -822,7 +842,15 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
                         });
                         pdfDoc = await loadingTask.promise;
                     } catch (fetchErr) {
-                        console.warn(`PDF Fetch failed (${url}), trying direct PDFJS load...`, fetchErr);
+                        const errorMsg = (fetchErr as Error).message;
+                        const isFileProtocol = window.location.protocol === 'file:';
+                        
+                        console.warn(`PDF Fetch failed (${url}).`, fetchErr);
+                        
+                        if (isFileProtocol && errorMsg.includes('Failed to fetch')) {
+                           console.error("Critical: 'Failed to fetch' usually means browser blocked 'file://' access to the PDF. Use a local server.");
+                        }
+
                         try {
                              // Fallback: Direct URL load (PDF.js internal transport)
                              const loadingTask = pdfjsLib.getDocument({
@@ -1384,7 +1412,7 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
                         onEdit={() => setShowCommentModal(true)}
                         readOnly={layerReadOnly}
                         onDimensionsUpdate={handleDimensionsUpdate}
-                        modelViewerSrc={modelViewerSrc}
+                        modelViewerSrc={resolvedModelViewerSrc}
                     />
                 )
             )}
