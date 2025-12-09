@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef, useCallback, useImperativeHandle, forwardRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useImperativeHandle, forwardRef, useLayoutEffect } from 'react';
 import AnnotationLayer from './components/AnnotationLayer';
 import Toolbar from './components/Toolbar';
 import CameraModal from './components/CameraModal';
@@ -613,14 +613,29 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
   const currentPage = visiblePages[activePageIndex];
 
   // Set PDF Worker
-  useEffect(() => {
-    if (pdfWorkerSrc) {
-        // User explicitly provided a path (e.g. for offline use)
-        pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
-    } else {
-        // Default to CDN based on the library version to ensure compatibility
-        const v = pdfjsLib.version || '4.10.38';
-        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${v}/build/pdf.worker.min.mjs`;
+  useLayoutEffect(() => {
+    let src = pdfWorkerSrc;
+    
+    // If no source provided, default to CDN matching version
+    if (!src) {
+        // Fallback to specific known working version if version string is unavailable or complex
+        // We use v4.10.38 as a stable baseline for this setup
+        const versionTag = pdfjsLib.version || '4.10.38'; 
+        src = `https://unpkg.com/pdfjs-dist@${versionTag}/build/pdf.worker.min.mjs`;
+    }
+
+    // Try to resolve relative paths to absolute to prevent "about:blank" worker errors
+    try {
+        if (src && !src.startsWith('http') && !src.startsWith('blob:') && typeof window !== 'undefined') {
+            src = new URL(src, window.location.href).toString();
+        }
+    } catch (e) {
+        console.warn("SmartDoc: Could not resolve worker URL absolute path", e);
+    }
+
+    if (src && pdfjsLib.GlobalWorkerOptions.workerSrc !== src) {
+        console.log("SmartDoc: Configuring PDF Worker:", src);
+        pdfjsLib.GlobalWorkerOptions.workerSrc = src;
     }
   }, [pdfWorkerSrc]);
 
@@ -796,13 +811,22 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
                         if (!res.ok) throw new Error(`HTTP ${res.status}`);
                         const blob = await res.blob();
                         const ab = await blob.arrayBuffer();
-                        const loadingTask = pdfjsLib.getDocument({ data: ab });
+                        // Loading from ArrayBuffer (safest for cross-origin if fetch worked)
+                        const loadingTask = pdfjsLib.getDocument({ 
+                            data: ab,
+                            cMapUrl: 'https://unpkg.com/pdfjs-dist@4.10.38/cmaps/',
+                            cMapPacked: true,
+                        });
                         pdfDoc = await loadingTask.promise;
                     } catch (fetchErr) {
                         console.warn(`PDF Fetch failed (${url}), trying direct PDFJS load...`, fetchErr);
                         try {
                              // Fallback: Direct URL load (PDF.js internal transport)
-                             const loadingTask = pdfjsLib.getDocument(url);
+                             const loadingTask = pdfjsLib.getDocument({
+                                 url,
+                                 cMapUrl: 'https://unpkg.com/pdfjs-dist@4.10.38/cmaps/',
+                                 cMapPacked: true,
+                             });
                              pdfDoc = await loadingTask.promise;
                         } catch (directErr) {
                              console.error("Critical: Failed to load PDF via both fetch and direct.", directErr);
@@ -941,7 +965,11 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
           try {
             if (isPdf) {
                 const arrayBuffer = await file.arrayBuffer();
-                const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+                const loadingTask = pdfjsLib.getDocument({ 
+                    data: arrayBuffer,
+                    cMapUrl: 'https://unpkg.com/pdfjs-dist@4.10.38/cmaps/',
+                    cMapPacked: true, 
+                });
                 const pdf = await loadingTask.promise;
                 pageCount = pdf.numPages;
 
