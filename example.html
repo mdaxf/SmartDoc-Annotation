@@ -7,9 +7,20 @@
     <title>SmartDoc - Ultimate Legacy Integration Demo</title>
     
     <!-- 
-        1. Load Library Styles 
-           (In production, point to distribute/index.css if extracted, or rely on bundle injection)
+        ========================================
+        MODE SELECTION
+        ========================================
+        This file is set up to work with the Vite Dev Server by default.
+        To test the PRODUCTION BUNDLE (Legacy Mode):
+        1. Run `npm run build`
+        2. Uncomment the "PRODUCTION MODE" block below.
+        3. Comment out the "DEVELOPMENT MODE" block at the bottom of <body>.
     -->
+
+    <!-- --- PRODUCTION MODE STYLES (Uncomment after build) --- -->
+    <!-- <link rel="stylesheet" href="./distribute/style.css"> -->
+
+    <!-- --- DEVELOPMENT MODE STYLES (Leave active for npm run dev) --- -->
     <style>
         /* Basic Page Reset */
         body { margin: 0; padding: 0; font-family: -apple-system, system-ui, sans-serif; background: #0f172a; color: #e2e8f0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
@@ -51,12 +62,8 @@
         @keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
     </style>
 
-    <!-- 
-       LOAD THE LIBRARY 
-       1. Run `npm run build` to generate these files.
-       2. If using Vite dev server, you can comment this out and import module directly (see bottom script).
-    -->
-    <script src="./distribute/smart-doc.bundle.js"></script>
+    <!-- --- PRODUCTION MODE SCRIPT (Uncomment after build) --- -->
+    <!-- <script src="./distribute/smart-doc.bundle.js"></script> -->
 
     <!-- Dependencies for DOCX support (Optional) -->
     <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
@@ -67,11 +74,7 @@
     <div id="build-error">
         <h2 style="font-size: 2rem; color: #ef4444;">Library Not Found</h2>
         <p>The <code>window.SmartDoc</code> object is missing.</p>
-        <div class="code-box">
-            npm install<br>
-            npm run build
-        </div>
-        <p>Then refresh this page.</p>
+        <p style="color: #ccc; max-width: 400px; margin-top: 10px;">If running via <b>npm run dev</b>, ensure the module script is active.<br>If testing production, ensure you ran <b>npm run build</b> and uncommented the production tags in this HTML.</p>
     </div>
 
     <header>
@@ -122,6 +125,14 @@
         </aside>
     </div>
 
+    <!-- --- DEVELOPMENT MODE SCRIPT (Comment out for Production testing) --- -->
+    <script type="module">
+        import { createSmartDoc } from './smartDoc.ts';
+        // Mock global for dev mode consistency
+        window.SmartDoc = { create: createSmartDoc };
+        window.dispatchEvent(new Event('smartdoc-ready'));
+    </script>
+
     <script>
         let docInstance = null;
 
@@ -150,6 +161,8 @@
 
         // --- 2. Initialization Function ---
         function initSmartDoc(mode = 'full') {
+            if (!window.SmartDoc) return;
+
             // Unmount if exists
             if (docInstance) {
                 docInstance.unmount();
@@ -284,15 +297,24 @@
             docInstance.clearAnnotations();
         }
 
-        // --- 4. Startup ---
+        // --- 4. Startup & Failsafe ---
+        
+        // Listen for dev mode ready event
+        window.addEventListener('smartdoc-ready', () => {
+             initSmartDoc('full');
+             document.querySelector('.btn-grid button').classList.add('active');
+        });
+
+        // Fallback check for Production mode (where no event might fire if script loads fast)
         window.onload = function() {
-            if (!window.SmartDoc) {
-                document.getElementById('build-error').style.display = 'flex';
-                return;
-            }
-            initSmartDoc('full');
-            // Set first button active
-            document.querySelector('.btn-grid button').classList.add('active');
+            setTimeout(() => {
+                if (window.SmartDoc && !docInstance) {
+                    initSmartDoc('full');
+                    document.querySelector('.btn-grid button').classList.add('active');
+                } else if (!window.SmartDoc) {
+                    document.getElementById('build-error').style.display = 'flex';
+                }
+            }, 500); // Small delay to allow module loading in Dev
         };
 
     </script>

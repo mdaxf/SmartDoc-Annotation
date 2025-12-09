@@ -12,14 +12,17 @@ Since legacy apps typically don't use modern bundlers, you must use the pre-buil
     npm install
     npm run build
     ```
-    This creates `distribute/smart-doc.bundle.js`.
+    This creates `distribute/smart-doc.bundle.js` and `distribute/style.css`.
 
 2.  **Copy Files**:
-    Copy `distribute/smart-doc.bundle.js` into your project's static assets folder (e.g., `/js/`, `/assets/`, or `/public/`).
+    Copy both files into your project's static assets folder (e.g., `/js/`, `/assets/`, or `/public/`).
 
 3.  **Include in HTML**:
     ```html
-    <!-- Main Library -->
+    <!-- 1. Styles -->
+    <link rel="stylesheet" href="/path/to/style.css">
+
+    <!-- 2. Main Library -->
     <script src="/path/to/smart-doc.bundle.js"></script>
     
     <!-- Optional: Helper libraries for parsing DOCX files if needed -->
@@ -74,7 +77,7 @@ Pass this object as the **2nd argument** to `create`.
 | `hideSaveJsonBtn` | `boolean` | `false` | Hide the save/download button. |
 | `hideCameraBtn` | `boolean` | `false` | Hide the webcam capture button. |
 | `showThumbnails` | `boolean` | `true` | Show the page thumbnail sidebar on load. |
-| `pdfWorkerSrc` | `string` | `CDN URL` | Path to `pdf.worker.min.mjs` (for offline use). |
+| `pdfWorkerSrc` | `string` | `CDN URL` | Path to `pdf.worker.min.js` (for offline use). Note: Use `.js` version for max compatibility. |
 | `modelViewerSrc` | `string` | `CDN URL` | Path to `model-viewer.min.js` (for offline use). |
 | `styleConfig` | `Object` | `{}` | CSS overrides. See Style Config below. |
 
@@ -146,7 +149,7 @@ Destroys the React application and cleans up the DOM.
 If loading DOCX files fails, ensure you added the `jszip` and `docx-preview` script tags in your HTML head (see Section 1).
 
 ### "Worker invalid" (PDF.js)
-The library is configured to load the PDF worker from a CDN (`https://aistudiocdn.com/...` or unpkg) by default to ensure it works without complex build steps.
+The library is configured to load the PDF worker from a CDN by default to ensure it works without complex build steps.
 **For Offline/Local Use:** You must manually download the worker file and set `pdfWorkerSrc` in the configuration. See [OFFLINE_SETUP.md](./OFFLINE_SETUP.md).
 
 ### CORS Issues

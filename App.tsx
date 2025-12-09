@@ -11,6 +11,12 @@ import { Info, MessageSquare, Trash2, X, Check, ChevronLeft, ChevronRight, Loade
 import { REASON_CODES, SEVERITY_COLORS, STATUS_OPTIONS } from './constants';
 import * as pdfjsLib from 'pdfjs-dist';
 
+// Helper to resolve PDF.js library (handles ES Module default export interop issues)
+const getPdfLib = () => {
+    const lib = pdfjsLib as any;
+    return lib.GlobalWorkerOptions ? lib : lib.default;
+};
+
 // --- Internal Page Renderer (Optimized) ---
 const PageRenderer: React.FC<{
   page: PageData;
@@ -613,33 +619,41 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
   // Identify Active Page for Single-Page Rendering
   const currentPage = visiblePages[activePageIndex];
 
-  // Resolve Model Viewer Source (Handles file:// protocol issue for 3D Viewer)
+  // Resolve Model Viewer Source
   let resolvedModelViewerSrc = modelViewerSrc || "https://ajax.googleapis.com/ajax/libs/model-viewer/3.4.0/model-viewer.min.js";
   if (typeof window !== 'undefined' && window.location.protocol === 'file:') {
-     // If user provided a relative path while on file://, ignoring it to prevent CORS error
+     // Force CDN on file protocol to avoid CORS block of scripts
      if (!resolvedModelViewerSrc.startsWith('http')) {
         resolvedModelViewerSrc = "https://ajax.googleapis.com/ajax/libs/model-viewer/3.4.0/model-viewer.min.js";
      }
+  } else {
+     // If not file protocol, resolve path relative to current location to ensure absolute path is used
+     if (resolvedModelViewerSrc && !resolvedModelViewerSrc.startsWith('http') && !resolvedModelViewerSrc.startsWith('//')) {
+         try {
+             resolvedModelViewerSrc = new URL(resolvedModelViewerSrc, window.location.href).toString();
+         } catch(e) { /* ignore invalid paths */ }
+     }
   }
 
-  // Set PDF Worker - KEY FIX FOR "About:Blank" and Relative Path errors
+  // Set PDF Worker
   useLayoutEffect(() => {
     // 1. Determine Source
     let src = pdfWorkerSrc;
 
-    // EDGE CASE: If running via file:// protocol, relative paths to workers fail due to browser security (CORS/Module restrictions).
-    // We force CDN usage in this specific case to ensure the demo works out-of-the-box, unless the user provided a blob/http url.
+    // EDGE CASE: If running via file:// protocol, relative paths to workers fail due to browser security.
+    // Also, environments that block .mjs files need a .js fallback.
+    // We use version 3.11.174 which provides a standard UMD .js worker.
     if (typeof window !== 'undefined' && window.location.protocol === 'file:') {
         const isLocalPath = src && !src.startsWith('http') && !src.startsWith('blob:');
-        if (!src || isLocalPath) {
-             console.warn("SmartDoc: 'file://' protocol detected. Forcing CDN for PDF Worker to bypass browser worker security restrictions. To use local workers, serve this folder via HTTP (e.g., 'npm run dev' or 'python -m http.server').");
-             src = `https://unpkg.com/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs`;
+        if (isLocalPath) {
+             console.warn(`SmartDoc: 'file://' protocol detected. Custom worker path '${src}' cannot be loaded due to browser security. Falling back to CDN (v3.11.174 .js).`);
+             src = `https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js`;
         }
     }
 
     if (!src) {
-        // Default to specific stable CDN version to match pdfjs-dist import
-        src = `https://unpkg.com/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs`;
+        // Default to specific stable v3 CDN version to ensure .js extension support
+        src = `https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js`;
     }
 
     // 2. Resolve to Absolute URL
@@ -654,10 +668,11 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
     }
 
     // 3. Apply to GlobalWorkerOptions
-    // Only update if changed to avoid unnecessary re-initialization warnings
-    if (src && pdfjsLib.GlobalWorkerOptions.workerSrc !== src) {
-        // console.debug("SmartDoc: Configuring PDF Worker:", src);
-        pdfjsLib.GlobalWorkerOptions.workerSrc = src;
+    // Use the helper to resolve pdfjsLib which might be a default export in some bundlers
+    const pdfJs = getPdfLib();
+    if (pdfJs && pdfJs.GlobalWorkerOptions && src && pdfJs.GlobalWorkerOptions.workerSrc !== src) {
+        console.log("SmartDoc: Configured PDF Worker =>", src);
+        pdfJs.GlobalWorkerOptions.workerSrc = src;
     }
   }, [pdfWorkerSrc]);
 
@@ -804,6 +819,9 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
         const newDocuments: DocumentMeta[] = [];
         const newPages: PageData[] = [];
 
+        // Resolve PDF.js library for use in loop
+        const pdfJs = getPdfLib();
+
         for (let i = 0; i < urlArray.length; i++) {
             const url = urlArray[i];
             const docId = docIds[i] || `${Date.now()}-${i}`;
@@ -823,6 +841,11 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
             try {
                 // 1. PDF
                 if (isPdf) {
+                    if (!pdfJs) {
+                        console.error("SmartDoc: PDF library not available.");
+                        continue;
+                    }
+
                     // Try fetch first (Better for binary data control)
                     // If fail, fall back to PDFJS direct load (handles some range requests better but strict CORS still blocks)
                     let pdfDoc = null;
@@ -833,10 +856,11 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
                         if (!res.ok) throw new Error(`HTTP ${res.status}`);
                         const blob = await res.blob();
                         const ab = await blob.arrayBuffer();
-                        // Loading from ArrayBuffer (safest for cross-origin if fetch worked)
-                        const loadingTask = pdfjsLib.getDocument({ 
+                        
+                        // Use v3 CMaps URL for compatibility
+                        const loadingTask = pdfJs.getDocument({ 
                             data: ab,
-                            cMapUrl: 'https://unpkg.com/pdfjs-dist@4.10.38/cmaps/',
+                            cMapUrl: 'https://unpkg.com/pdfjs-dist@3.11.174/cmaps/',
                             cMapPacked: true,
                             withCredentials: false // Avoid strict origin checks if possible
                         });
@@ -853,9 +877,9 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
 
                         try {
                              // Fallback: Direct URL load (PDF.js internal transport)
-                             const loadingTask = pdfjsLib.getDocument({
+                             const loadingTask = pdfJs.getDocument({
                                  url,
-                                 cMapUrl: 'https://unpkg.com/pdfjs-dist@4.10.38/cmaps/',
+                                 cMapUrl: 'https://unpkg.com/pdfjs-dist@3.11.174/cmaps/',
                                  cMapPacked: true,
                                  withCredentials: false
                              });
@@ -974,6 +998,8 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
 
       const newDocs: DocumentMeta[] = [];
       const newPages: PageData[] = [];
+      
+      const pdfJs = getPdfLib();
 
       for (let i = 0; i < files.length; i++) {
           const file = files[i];
@@ -995,11 +1021,11 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
           let pageCount = 1;
 
           try {
-            if (isPdf) {
+            if (isPdf && pdfJs) {
                 const arrayBuffer = await file.arrayBuffer();
-                const loadingTask = pdfjsLib.getDocument({ 
+                const loadingTask = pdfJs.getDocument({ 
                     data: arrayBuffer,
-                    cMapUrl: 'https://unpkg.com/pdfjs-dist@4.10.38/cmaps/',
+                    cMapUrl: 'https://unpkg.com/pdfjs-dist@3.11.174/cmaps/',
                     cMapPacked: true, 
                 });
                 const pdf = await loadingTask.promise;
@@ -1229,7 +1255,9 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
     setIsAnalyzing(true);
     try {
         let imageToAnalyze = page.imageSrc;
-        if (!imageToAnalyze && page.pdfPage) {
+        const pdfJs = getPdfLib(); // Use helper
+
+        if (!imageToAnalyze && page.pdfPage && pdfJs) {
             const viewport = page.pdfPage.getViewport({ scale: 1.5 });
             const canvas = document.createElement('canvas');
             canvas.width = viewport.width;

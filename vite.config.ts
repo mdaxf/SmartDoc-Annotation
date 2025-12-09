@@ -12,6 +12,7 @@ export default defineConfig({
   build: {
     // Output to 'distribute' folder as requested
     outDir: 'distribute',
+    cssCodeSplit: false, // Ensure single CSS file
     lib: {
       entry: path.resolve('smartDoc.ts'),
       name: 'SmartDoc', // The global variable name (window.SmartDoc)
@@ -22,7 +23,11 @@ export default defineConfig({
       // Ensure EVERYTHING is bundled. Empty array means nothing is external.
       external: [], 
       output: {
-        globals: {}
+        globals: {},
+        assetFileNames: (assetInfo) => {
+          if (assetInfo.name === 'style.css') return 'style.css';
+          return assetInfo.name;
+        }
       }
     },
     // Minify output

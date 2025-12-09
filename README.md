@@ -30,7 +30,7 @@ Designed for integration into existing web applications (React, Angular, Vue, or
 
 3.  **View Examples**
     Open your browser to the URL provided (usually `http://localhost:5173`) and navigate to:
-    *   `/example.html` (The "Kitchen Sink" Legacy Demo)
+    *   `/example.html` (The **Main Legacy Demo** - Kitchen Sink)
     *   `/examples/vanilla-pdf-multipage.html`
 
 ---
@@ -44,9 +44,12 @@ To use this library in a standard or legacy JavaScript application:
     npm run build
     ```
 2.  **Locate the Output**:
-    The build will generate a file at `distribute/smart-doc.bundle.js`.
+    The build will generate two files in the `distribute/` folder:
+    *   `smart-doc.bundle.js`
+    *   `style.css`
 3.  **Include in your HTML**:
     ```html
+    <link rel="stylesheet" href="distribute/style.css">
     <script src="distribute/smart-doc.bundle.js"></script>
     <script>
        // window.SmartDoc is now available globally
@@ -58,7 +61,7 @@ To use this library in a standard or legacy JavaScript application:
 
 ## 🚀 Features
 
-*   **Multi-Format Support**: Load Images (`.jpg`, `.png`, `.webp`) and Documents (`.pdf`) natively.
+*   **Multi-Format Support**: Native handling of Images (`.jpg`, `.png`, `.webp`) and Documents (`.pdf`) natively.
 *   **Rich Annotation Tools**: Pen, Rectangle, Circle, Text, Arrow, and Hand (Pan) tools.
 *   **Context Actions**: Click any annotation to reveal quick **Edit** and **Delete** buttons directly on the canvas.
 *   **PDF Pagination**: Full support for multi-page PDF navigation and annotation.
@@ -85,6 +88,7 @@ Include the library script (and dependencies if not bundled) in your HTML.
 
 ```html
 <!-- Load the library -->
+<link rel="stylesheet" href="path/to/style.css">
 <script src="path/to/smart-doc.bundle.js"></script>
 
 <!-- Container -->
