@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useRef, useCallback, useImperativeHandle, forwardRef, useLayoutEffect } from 'react';
 import AnnotationLayer from './components/AnnotationLayer';
 import Toolbar from './components/Toolbar';
@@ -816,11 +817,10 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
         }
 
         const urlArray = Array.isArray(urls) ? urls : [urls];
-        const docIds = providedIds || urlArray.map((_, i) => (shouldReset ? i : pagesRef.current.length + i).toString());
-
+        
         const newDocuments: DocumentMeta[] = [];
         const newPages: PageData[] = [];
-
+        
         // Resolve PDF.js library for use in loop
         const pdfJs = getPdfLib();
         
@@ -831,7 +831,17 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
 
         for (let i = 0; i < urlArray.length; i++) {
             const url = urlArray[i];
-            const docId = docIds[i] || `${Date.now()}-${i}`;
+            
+            // Explicitly resolve document ID using provided array if available, else auto-generate
+            let docId: string;
+            if (providedIds && providedIds[i]) {
+                docId = providedIds[i];
+            } else {
+                // If appending, offset index by existing doc count
+                const index = shouldReset ? i : pagesRef.current.length + i;
+                docId = index.toString();
+            }
+
             const lowUrl = url.toLowerCase();
             let fileName = `Document ${docId}`;
             try { fileName = decodeURIComponent(url.split('/').pop() || `Document ${docId}`); } catch(e){}
