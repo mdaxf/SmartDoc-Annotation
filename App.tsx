@@ -406,7 +406,7 @@ const CommentModal: React.FC<any> = ({ isOpen, onClose, onSave, onDelete, initia
               <MessageSquare className="w-4 h-4 text-blue-400" />
               Annotation Details
             </h3>
-            <button type="button" onClick={onClose} className="text-gray-400 hover:text-white transition-colors">
+            <button type="button" onClick={(e) => { e.preventDefault(); onClose(); }} className="text-gray-400 hover:text-white transition-colors">
               <X className="w-5 h-5" />
             </button>
           </div>
@@ -423,7 +423,7 @@ const CommentModal: React.FC<any> = ({ isOpen, onClose, onSave, onDelete, initia
                               key={s}
                               type="button"
                               disabled={readOnly}
-                              onClick={() => setFormData((prev:any) => ({ ...prev, severity: s }))}
+                              onClick={(e) => { e.preventDefault(); setFormData((prev:any) => ({ ...prev, severity: s })); }}
                               className={`flex-1 py-2 rounded-md text-sm font-bold border transition-all ${
                                   formData.severity === s 
                                   ? 'border-white shadow-lg' 
@@ -505,7 +505,8 @@ const CommentModal: React.FC<any> = ({ isOpen, onClose, onSave, onDelete, initia
                   {!initialData.isNew && onDelete && !readOnly && (
                       <button 
                         type="button"
-                        onClick={() => {
+                        onClick={(e) => {
+                             e.preventDefault();
                              if(window.confirm("Are you sure you want to delete this annotation?")) onDelete();
                         }} 
                         className="px-3 py-2 text-sm font-medium text-red-400 hover:bg-red-900/20 hover:text-red-300 rounded-lg transition-colors flex items-center gap-2"
@@ -516,13 +517,13 @@ const CommentModal: React.FC<any> = ({ isOpen, onClose, onSave, onDelete, initia
                   )}
                </div>
                <div className="flex gap-2">
-                    <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-300 hover:bg-gray-700 rounded-lg transition-colors">
+                    <button type="button" onClick={(e) => { e.preventDefault(); onClose(); }} className="px-4 py-2 text-sm font-medium text-gray-300 hover:bg-gray-700 rounded-lg transition-colors">
                         {readOnly ? 'Close' : 'Cancel'}
                     </button>
                     {!readOnly && (
                         <button 
                             type="button"
-                            onClick={() => onSave(formData)} 
+                            onClick={(e) => { e.preventDefault(); onSave(formData); }} 
                             className="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center gap-2"
                         >
                             <Check className="w-4 h-4" />
@@ -637,42 +638,40 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
 
   // Set PDF Worker
   useLayoutEffect(() => {
-    // 1. Determine Source
-    let src = pdfWorkerSrc;
+    const pdfJs = getPdfLib();
+    if (!pdfJs) return;
 
-    // EDGE CASE: If running via file:// protocol, relative paths to workers fail due to browser security.
-    // Also, environments that block .mjs files need a .js fallback.
-    // We use version 3.11.174 which provides a standard UMD .js worker.
+    let targetSrc = pdfWorkerSrc;
+
+    // Default to CDN ONLY if no worker provided and we are not in a strict offline requirement
+    // In strict environments, user MUST provide pdfWorkerSrc.
+    if (!targetSrc) {
+        // Fallback for easy setup, but warn if it might block
+        targetSrc = `https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js`;
+    }
+
+    // EDGE CASE: If running via file:// protocol
     if (typeof window !== 'undefined' && window.location.protocol === 'file:') {
-        const isLocalPath = src && !src.startsWith('http') && !src.startsWith('blob:');
+        const isLocalPath = targetSrc && !targetSrc.startsWith('http') && !targetSrc.startsWith('blob:');
         if (isLocalPath) {
-             console.warn(`SmartDoc: 'file://' protocol detected. Custom worker path '${src}' cannot be loaded due to browser security. Falling back to CDN (v3.11.174 .js).`);
-             src = `https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js`;
+             console.warn(`SmartDoc: 'file://' protocol detected. Local worker '${targetSrc}' may be blocked. Trying CDN fallback.`);
+             targetSrc = `https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js`;
         }
     }
 
-    if (!src) {
-        // Default to specific stable v3 CDN version to ensure .js extension support
-        src = `https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js`;
-    }
-
-    // 2. Resolve to Absolute URL
-    // This is critical because if this code runs in a blob/bundle, relative paths like "../libs/" 
-    // will be resolved against "about:blank" or the blob URL, causing failure.
+    // Resolve Relative URL to Absolute
     try {
-        if (src && !src.startsWith('http') && !src.startsWith('blob:') && typeof window !== 'undefined' && window.location) {
-            src = new URL(src, window.location.href).toString();
+        if (targetSrc && !targetSrc.startsWith('http') && !targetSrc.startsWith('blob:') && typeof window !== 'undefined' && window.location) {
+            targetSrc = new URL(targetSrc, window.location.href).toString();
         }
     } catch (e) {
-        console.warn("SmartDoc: Could not resolve worker URL to absolute path", e);
+        console.warn("SmartDoc: Could not resolve worker URL", e);
     }
 
-    // 3. Apply to GlobalWorkerOptions
-    // Use the helper to resolve pdfjsLib which might be a default export in some bundlers
-    const pdfJs = getPdfLib();
-    if (pdfJs && pdfJs.GlobalWorkerOptions && src && pdfJs.GlobalWorkerOptions.workerSrc !== src) {
-        console.log("SmartDoc: Configured PDF Worker =>", src);
-        pdfJs.GlobalWorkerOptions.workerSrc = src;
+    // Apply
+    if (targetSrc && pdfJs.GlobalWorkerOptions.workerSrc !== targetSrc) {
+        console.log(`[SmartDoc] Configuring PDF Worker: ${targetSrc}`);
+        pdfJs.GlobalWorkerOptions.workerSrc = targetSrc;
     }
   }, [pdfWorkerSrc]);
 
@@ -821,6 +820,12 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
 
         // Resolve PDF.js library for use in loop
         const pdfJs = getPdfLib();
+        
+        // Ensure worker is configured before calling getDocument
+        if (pdfJs && !pdfJs.GlobalWorkerOptions.workerSrc && pdfWorkerSrc) {
+             console.log("[SmartDoc] Eager configuration of worker:", pdfWorkerSrc);
+             pdfJs.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
+        }
 
         for (let i = 0; i < urlArray.length; i++) {
             const url = urlArray[i];
@@ -873,6 +878,11 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
                         
                         if (isFileProtocol && errorMsg.includes('Failed to fetch')) {
                            console.error("Critical: 'Failed to fetch' usually means browser blocked 'file://' access to the PDF. Use a local server.");
+                        }
+
+                        // Check specifically for worker errors in offline/file scenarios
+                        if (errorMsg.includes('fake worker') || errorMsg.includes('worker')) {
+                            console.error(`SmartDoc Alert: PDF Worker failed to load. Configured worker: ${pdfJs.GlobalWorkerOptions.workerSrc}. Ensure this file exists and is allowed by CSP.`);
                         }
 
                         try {
@@ -989,7 +999,7 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
         if (events?.onDocumentReady) {
             setTimeout(() => events.onDocumentReady?.(), 50);
         }
-  }, [events]);
+  }, [events, pdfWorkerSrc]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
       const files = e.target.files;
@@ -1213,7 +1223,7 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
               {documents.map(doc => (
                   <button
                     key={doc.id}
-                    onClick={() => handleDocChange(doc.id)}
+                    onClick={(e) => { e.preventDefault(); handleDocChange(doc.id); }}
                     type="button"
                     className={`px-3 py-1 rounded-full text-xs font-medium transition-all shrink-0 ${
                         currentDocumentId === doc.id 
@@ -1348,7 +1358,7 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
         {/* Header */}
         <div className="h-14 bg-gray-800 border-b border-gray-700 flex items-center justify-between px-4 shadow-md z-10 shrink-0">
              <div className="flex items-center gap-2">
-                 {isMobile && <button type="button" onClick={() => { setLayoutMode('sidebar'); setMobileMenuOpen(true); }} className="p-2"><Menu className="w-5 h-5"/></button>}
+                 {isMobile && <button type="button" onClick={(e) => { e.preventDefault(); setLayoutMode('sidebar'); setMobileMenuOpen(true); }} className="p-2"><Menu className="w-5 h-5"/></button>}
                  <span className="font-bold text-lg text-blue-400">SmartDoc</span>
                  <span className="text-gray-500">|</span>
                  <span className="text-gray-300 text-sm font-medium truncate max-w-[150px]">
@@ -1360,15 +1370,15 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
                   {!hideCameraBtn && !isViewOnly && (
                    <button 
                      type="button"
-                     onClick={() => setShowCamera(true)}
+                     onClick={(e) => { e.preventDefault(); setShowCamera(true); }}
                      className="p-2 rounded-md hover:bg-gray-700 transition-colors text-gray-400"
                      title="Add Photo"
                    >
                        <Camera className="w-5 h-5" />
                    </button>
                   )}
-                  <button type="button" onClick={() => setLayoutMode(m => m==='sidebar'?'bottom':'sidebar')}><LayoutTemplate className="w-5 h-5 text-gray-400"/></button>
-                  <button type="button" onClick={() => setShowRightPanel(!showRightPanel)}><PanelRightOpen className="w-5 h-5 text-gray-400"/></button>
+                  <button type="button" onClick={(e) => { e.preventDefault(); setLayoutMode(m => m==='sidebar'?'bottom':'sidebar'); }}><LayoutTemplate className="w-5 h-5 text-gray-400"/></button>
+                  <button type="button" onClick={(e) => { e.preventDefault(); setShowRightPanel(!showRightPanel); }}><PanelRightOpen className="w-5 h-5 text-gray-400"/></button>
              </div>
         </div>
 
@@ -1484,7 +1494,7 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
             <div className={`absolute top-14 bottom-0 right-0 z-40 bg-gray-900 border-l border-gray-700 w-80 flex flex-col`}>
                  <div className="p-3 border-b border-gray-800 flex justify-between items-center">
                      <span className="font-bold text-gray-400 uppercase text-xs">Annotations ({visibleAnnotations.length})</span>
-                     <button type="button" onClick={() => setShowRightPanel(false)} className="text-gray-500 hover:text-white"><X className="w-4 h-4" /></button>
+                     <button type="button" onClick={(e) => { e.preventDefault(); setShowRightPanel(false); }} className="text-gray-500 hover:text-white"><X className="w-4 h-4" /></button>
                  </div>
                  <div className="flex-1 overflow-y-auto p-4 space-y-3">
                      {visibleAnnotations.map(ann => (
