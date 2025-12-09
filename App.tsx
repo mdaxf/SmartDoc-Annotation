@@ -449,7 +449,7 @@ const CommentModal: React.FC<any> = ({ isOpen, onClose, onSave, onDelete, initia
                           value={formData.reasonCode}
                           disabled={readOnly}
                           onChange={(e) => setFormData((prev:any) => ({ ...prev, reasonCode: e.target.value }))}
-                          className="w-full bg-gray-900 border border-gray-600 text-white text-sm rounded-lg block p-2 disabled:opacity-70"
+                          className="w-full bg-gray-700 border border-gray-600 text-white text-sm rounded-lg block p-2.5 disabled:opacity-70 focus:ring-2 focus:ring-blue-500 outline-none transition-colors"
                       >
                           {reasonCodeOptions.map((code: string) => (
                               <option key={code} value={code}>{code}</option>
@@ -465,7 +465,7 @@ const CommentModal: React.FC<any> = ({ isOpen, onClose, onSave, onDelete, initia
                           value={formData.status}
                           disabled={readOnly && formData.status !== 'New'}
                           onChange={(e) => setFormData((prev:any) => ({ ...prev, status: e.target.value }))}
-                          className="w-full bg-gray-900 border border-gray-600 text-white text-sm rounded-lg block p-2 disabled:opacity-70"
+                          className="w-full bg-gray-700 border border-gray-600 text-white text-sm rounded-lg block p-2.5 disabled:opacity-70 focus:ring-2 focus:ring-blue-500 outline-none transition-colors"
                       >
                           {statusOptions.map((status: string) => (
                               <option key={status} value={status}>{status}</option>
@@ -481,7 +481,7 @@ const CommentModal: React.FC<any> = ({ isOpen, onClose, onSave, onDelete, initia
                   <textarea
                       ref={commentInputRef}
                       disabled={readOnly}
-                      className="w-full h-24 bg-gray-900 border border-gray-700 rounded-lg p-3 text-gray-200 resize-none placeholder-gray-600 text-sm disabled:opacity-70"
+                      className="w-full h-24 bg-gray-700 border border-gray-600 rounded-lg p-3 text-white resize-none placeholder-gray-400 text-sm disabled:opacity-70 focus:ring-2 focus:ring-blue-500 outline-none transition-colors"
                       placeholder={initialData.type === 'text' ? "Enter text content..." : "Enter your comment here..."}
                       value={initialData.type === 'text' ? formData.text : formData.comment}
                       onChange={(e) => {
