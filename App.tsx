@@ -32,6 +32,7 @@ const PageRenderer: React.FC<{
   onEdit: (id: string) => void;
   readOnly?: boolean;
   onDimensionsUpdate?: (id: string, w: number, h: number) => void;
+  modelViewerSrc?: string;
 }> = React.memo(({
   page,
   scale,
@@ -50,7 +51,8 @@ const PageRenderer: React.FC<{
   onDelete,
   onEdit,
   readOnly,
-  onDimensionsUpdate
+  onDimensionsUpdate,
+  modelViewerSrc
 }) => {
   const [bgImage, setBgImage] = useState<HTMLImageElement | null>(null);
   const [isRendering, setIsRendering] = useState(false);
@@ -211,7 +213,8 @@ const PageRenderer: React.FC<{
     };
   }, [page]);
 
-  const modelViewerSrc = "libs/model-viewer.min.js";
+  // Use configured source or default to CDN for online compatibility
+  const viewerSrc = modelViewerSrc || "https://ajax.googleapis.com/ajax/libs/model-viewer/3.4.0/model-viewer.min.js";
 
   return (
     <div 
@@ -310,7 +313,7 @@ const PageRenderer: React.FC<{
                 srcDoc={`
                     <html>
                     <head>
-                        <script type="module" src="${modelViewerSrc}"></script>
+                        <script type="module" src="${viewerSrc}"></script>
                         <script>
                             window.onerror = function() {
                                 if(!window.customElements.get('model-viewer')) {
@@ -545,7 +548,8 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
     defaultTool = 'arrow',
     hideCameraBtn = false,
     showThumbnails: initialShowThumbnails = true,
-    pdfWorkerSrc, // NEW PROP: Allow passing local worker path
+    pdfWorkerSrc, // Prop for PDF Worker
+    modelViewerSrc, // Prop for 3D Viewer
 }, ref) => {
   // --- State ---
   const [documents, setDocuments] = useState<DocumentMeta[]>([]);
@@ -1348,6 +1352,7 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
                         onEdit={() => setShowCommentModal(true)}
                         readOnly={layerReadOnly}
                         onDimensionsUpdate={handleDimensionsUpdate}
+                        modelViewerSrc={modelViewerSrc}
                     />
                 )
             )}

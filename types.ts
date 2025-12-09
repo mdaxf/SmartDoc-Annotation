@@ -141,6 +141,8 @@ export interface SmartDocConfig {
   
   // New: Path to PDF Worker for offline environments
   pdfWorkerSrc?: string; 
+  // New: Path to Model Viewer (3D) for offline environments
+  modelViewerSrc?: string;
 
   styleConfig?: SmartDocStyleConfig;
 }

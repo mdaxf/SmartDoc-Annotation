@@ -19,12 +19,12 @@ Some files cannot be bundled directly into the JavaScript file and must be copie
 The PDF parser runs in a separate thread.
 1.  **Download:** [pdf.worker.min.mjs](https://unpkg.com/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs)
 2.  **Place in:** Your project root or `libs/` folder.
-3.  **Config:** Point the `workerSrc` config option to this file.
+3.  **Config:** Point the `pdfWorkerSrc` config option to this file.
 
 ### B. 3D Model Viewer (Required for GLB/GLTF)
 1.  **Download:** [model-viewer.min.js](https://ajax.googleapis.com/ajax/libs/model-viewer/3.4.0/model-viewer.min.js)
 2.  **Place in:** `libs/model-viewer.min.js`
-3.  **Usage:** The application expects this file to be available if loading 3D models.
+3.  **Config:** Point the `modelViewerSrc` config option to this file.
 
 ## 3. Recommended Folder Structure
 
@@ -42,7 +42,7 @@ For an offline deployment, your folder should look like this:
 
 ## 4. Initialization Code (Offline)
 
-When initializing the library in `index.html`, explicitly set the path to the PDF worker so it doesn't try to fetch from a CDN.
+When initializing the library in `index.html`, explicitly set the paths so the library doesn't try to fetch from a CDN.
 
 ```javascript
 window.SmartDoc.create('root', {
@@ -50,6 +50,7 @@ window.SmartDoc.create('root', {
     
     // OFFLINE CONFIGURATION
     pdfWorkerSrc: './libs/pdf.worker.min.mjs', // Path to your local file
+    modelViewerSrc: './libs/model-viewer.min.js', // Path to your local file
     
     styleConfig: {
         // ...

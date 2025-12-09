@@ -74,6 +74,8 @@ Pass this object as the **2nd argument** to `create`.
 | `hideSaveJsonBtn` | `boolean` | `false` | Hide the save/download button. |
 | `hideCameraBtn` | `boolean` | `false` | Hide the webcam capture button. |
 | `showThumbnails` | `boolean` | `true` | Show the page thumbnail sidebar on load. |
+| `pdfWorkerSrc` | `string` | `CDN URL` | Path to `pdf.worker.min.mjs` (for offline use). |
+| `modelViewerSrc` | `string` | `CDN URL` | Path to `model-viewer.min.js` (for offline use). |
 | `styleConfig` | `Object` | `{}` | CSS overrides. See Style Config below. |
 
 ### Style Config Example
@@ -144,7 +146,8 @@ Destroys the React application and cleans up the DOM.
 If loading DOCX files fails, ensure you added the `jszip` and `docx-preview` script tags in your HTML head (see Section 1).
 
 ### "Worker invalid" (PDF.js)
-The library is configured to load the PDF worker from a CDN (`https://aistudiocdn.com/...`) to ensure it works without complex build steps. Ensure your CSP (Content Security Policy) allows scripts from `aistudiocdn.com` or `jsdelivr.net`.
+The library is configured to load the PDF worker from a CDN (`https://aistudiocdn.com/...` or unpkg) by default to ensure it works without complex build steps.
+**For Offline/Local Use:** You must manually download the worker file and set `pdfWorkerSrc` in the configuration. See [OFFLINE_SETUP.md](./OFFLINE_SETUP.md).
 
 ### CORS Issues
 If loading images from another domain, ensure the server sends `Access-Control-Allow-Origin: *` headers. The canvas cannot export data (save images) if "tainted" by non-CORS images.
