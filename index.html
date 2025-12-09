@@ -10,9 +10,12 @@
       NOTE: In an offline environment, you must download these JS files locally
       and reference them here, or rely on the bundler to include them.
       See OFFLINE_SETUP.md for details.
+      
+      We add crossorigin="anonymous" to ensure scripts loaded from CDNs 
+      are treated as same-origin for error reporting and module resolution purposes.
     -->
-    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/docx-preview@0.1.15/dist/docx-preview.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/docx-preview@0.1.15/dist/docx-preview.min.js" crossorigin="anonymous"></script>
     
   <script type="importmap">
 {

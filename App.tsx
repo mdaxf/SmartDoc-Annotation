@@ -113,6 +113,7 @@ const PageRenderer: React.FC<{
           
           const loadImage = (src: string, useCors: boolean) => {
               const img = new Image();
+              // Enable CORS to allow cross-origin images (e.g. from Unsplash) to be drawn and exported
               if (useCors) img.crossOrigin = "Anonymous";
               img.src = src;
               
@@ -612,29 +613,30 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
   // Identify Active Page for Single-Page Rendering
   const currentPage = visiblePages[activePageIndex];
 
-  // Set PDF Worker
+  // Set PDF Worker - KEY FIX FOR "About:Blank" and Relative Path errors
   useLayoutEffect(() => {
+    // 1. Determine Source
     let src = pdfWorkerSrc;
-    
-    // If no source provided, default to CDN matching version
     if (!src) {
-        // Fallback to specific known working version if version string is unavailable or complex
-        // We use v4.10.38 as a stable baseline for this setup
-        const versionTag = pdfjsLib.version || '4.10.38'; 
-        src = `https://unpkg.com/pdfjs-dist@${versionTag}/build/pdf.worker.min.mjs`;
+        // Default to specific stable CDN version to match pdfjs-dist import
+        src = `https://unpkg.com/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs`;
     }
 
-    // Try to resolve relative paths to absolute to prevent "about:blank" worker errors
+    // 2. Resolve to Absolute URL
+    // This is critical because if this code runs in a blob/bundle, relative paths like "../libs/" 
+    // will be resolved against "about:blank" or the blob URL, causing failure.
     try {
-        if (src && !src.startsWith('http') && !src.startsWith('blob:') && typeof window !== 'undefined') {
+        if (src && !src.startsWith('http') && !src.startsWith('blob:') && typeof window !== 'undefined' && window.location) {
             src = new URL(src, window.location.href).toString();
         }
     } catch (e) {
-        console.warn("SmartDoc: Could not resolve worker URL absolute path", e);
+        console.warn("SmartDoc: Could not resolve worker URL to absolute path", e);
     }
 
+    // 3. Apply to GlobalWorkerOptions
+    // Only update if changed to avoid unnecessary re-initialization warnings
     if (src && pdfjsLib.GlobalWorkerOptions.workerSrc !== src) {
-        console.log("SmartDoc: Configuring PDF Worker:", src);
+        // console.debug("SmartDoc: Configuring PDF Worker:", src);
         pdfjsLib.GlobalWorkerOptions.workerSrc = src;
     }
   }, [pdfWorkerSrc]);
@@ -806,8 +808,8 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
                     let pdfDoc = null;
                     
                     try {
-                        // Standard fetch to get blob
-                        const res = await fetch(url);
+                        // Standard fetch to get blob - ADDED CORS mode explicitly
+                        const res = await fetch(url, { mode: 'cors' });
                         if (!res.ok) throw new Error(`HTTP ${res.status}`);
                         const blob = await res.blob();
                         const ab = await blob.arrayBuffer();
@@ -816,6 +818,7 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
                             data: ab,
                             cMapUrl: 'https://unpkg.com/pdfjs-dist@4.10.38/cmaps/',
                             cMapPacked: true,
+                            withCredentials: false // Avoid strict origin checks if possible
                         });
                         pdfDoc = await loadingTask.promise;
                     } catch (fetchErr) {
@@ -826,6 +829,7 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
                                  url,
                                  cMapUrl: 'https://unpkg.com/pdfjs-dist@4.10.38/cmaps/',
                                  cMapPacked: true,
+                                 withCredentials: false
                              });
                              pdfDoc = await loadingTask.promise;
                         } catch (directErr) {
@@ -858,7 +862,7 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
                 } 
                 // 2. DOCX
                 else if (isDocx) {
-                    const res = await fetch(url);
+                    const res = await fetch(url, { mode: 'cors' });
                     const blob = await res.blob();
                     pageCount = 1;
                     newPages.push({
@@ -876,7 +880,7 @@ const SmartDocApp = forwardRef<SmartDocHandle, SmartDocProps>(({
                 }
                 // 4. HTML/Text
                 else if (isHtml || isTxt) {
-                    const res = await fetch(url);
+                    const res = await fetch(url, { mode: 'cors' });
                     const text = await res.text();
                     pageCount = 1;
                     newPages.push({
